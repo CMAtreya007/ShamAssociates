@@ -52,9 +52,11 @@ jobs:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Install root & frontend dependencies
+        shell: bash
         run: |
           npm install
           npm --prefix frontend install
+          chmod -R +x node_modules/.bin frontend/node_modules/.bin 2>/dev/null || true
           npm --prefix frontend run build
 
       - name: Build Tauri Desktop App
