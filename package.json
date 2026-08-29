@@ -1,19 +1,86 @@
 {
-  "name": "nse-market-suite-root",
+  "name": "nsepulse",
   "version": "1.0.0",
+  "description": "NSEpulse - Real-time Market Terminal & Automation Suite",
+  "main": "electron/main.js",
   "private": true,
   "scripts": {
     "dev": "concurrently -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"python backend/run.py\" \"npm --prefix frontend run dev\"",
-    "start": "concurrently -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"python backend/run.py\" \"npm --prefix frontend run dev\"",
+    "start": "npm run dev",
+    "electron:dev": "concurrently -n \"BACKEND,FRONTEND,ELECTRON\" -c \"blue,green,magenta\" \"python backend/run.py\" \"npm --prefix frontend run dev\" \"wait-on tcp:5173 && wait-on tcp:8756 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "build:frontend": "npm --prefix frontend run build",
     "build:sidecar": "python backend/build_sidecar.py",
     "build:icons": "python scripts/generate_icons.py",
     "build": "npm run build:icons && npm run build:frontend && npm run build:sidecar",
-    "tauri": "tauri",
-    "tauri:build": "npm run build && tauri build"
+    "electron:build": "npm run build && electron-builder",
+    "electron:build:win": "npm run build && electron-builder --win",
+    "electron:build:mac": "npm run build && electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.nsepulse.app",
+    "productName": "NSEpulse",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "frontend/dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/bin",
+        "to": "bin"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "electron/icons/icon.ico",
+      "artifactName": "NSEpulse-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "NSEpulse-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "NSEpulse-${version}-portable.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "electron/icons/icon.icns",
+      "category": "public.app-category.finance",
+      "artifactName": "NSEpulse-${version}.${ext}"
+    },
+    "dmg": {
+      "title": "NSEpulse Installer",
+      "artifactName": "NSEpulse-${version}.${ext}",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "wait-on": "^8.0.1"
   }
 }

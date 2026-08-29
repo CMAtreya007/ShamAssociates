@@ -1,9 +1,9 @@
 @echo off
-title NSE Market Data Automation Suite
+title NSEpulse - Real-time Market Terminal
 cd /d "%~dp0"
 
 echo ==============================================================================
-echo  Starting NSE Market Data Automation Suite (Windows)
+echo  Starting NSEpulse (Windows Launcher)
 echo ==============================================================================
 
 :: Check Python
@@ -29,14 +29,14 @@ if not exist "frontend\node_modules" (
 )
 
 echo [2/3] Launching FastAPI Backend on http://127.0.0.1:8756 ...
-start "NSE Backend (FastAPI)" cmd /c "cd /d ""%~dp0backend"" && python run.py"
+start "NSEpulse Backend" cmd /c "cd /d ""%~dp0backend"" && python run.py"
 
 echo [3/3] Launching Frontend Dashboard on http://localhost:5173 ...
-start "NSE Dashboard (Vite)" cmd /c "cd /d ""%~dp0frontend"" && npm run dev"
+start "NSEpulse Frontend" cmd /c "cd /d ""%~dp0frontend"" && npm run dev"
 
 echo.
-echo Application is starting...
+echo Launching NSEpulse...
 timeout /t 3 >nul
 start http://localhost:5173
 echo.
-echo NSE Market Suite opened in your default browser at http://localhost:5173
+echo NSEpulse is running at http://localhost:5173

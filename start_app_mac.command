@@ -1,13 +1,13 @@
 #!/bin/bash
 # ==============================================================================
-# NSE Market Data Automation & Trading Dashboard (macOS Launcher)
+# NSEpulse - Real-time Market Terminal (macOS Launcher)
 # Double-clickable script for macOS / MacBook
 # ==============================================================================
 
 cd "$(dirname "$0")"
 
 echo "=============================================================================="
-echo " Starting NSE Market Suite on macOS"
+echo " Starting NSEpulse on macOS"
 echo "=============================================================================="
 
 # Check if Python 3 is available
@@ -59,7 +59,7 @@ sleep 3
 open "http://localhost:5173"
 
 echo ""
-echo "NSE Market Suite is running at: http://localhost:5173"
+echo "NSEpulse is running at: http://localhost:5173"
 echo "Press Ctrl+C in this terminal window to stop all services."
 echo ""
 

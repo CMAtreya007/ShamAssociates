@@ -3,7 +3,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 def generate_icons():
-    icons_dir = Path(__file__).resolve().parent.parent / "src-tauri" / "icons"
+    icons_dir = Path(__file__).resolve().parent.parent / "electron" / "icons"
     icons_dir.mkdir(parents=True, exist_ok=True)
 
     # Base master image 512x512 with sleek modern dark teal/emerald gradient

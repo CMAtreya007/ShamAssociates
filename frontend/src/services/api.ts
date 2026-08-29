@@ -157,29 +157,7 @@ export async function downloadExportZip(date?: string, onProgress?: (step: strin
 
   if (onProgress) onProgress("Saving file to disk...");
 
-  // Check if Tauri is present for native Save Dialog
-  try {
-    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-    if (isTauri) {
-      const dialog = await import("@tauri-apps/plugin-dialog");
-      const fs = await import("@tauri-apps/plugin-fs");
-
-      const savePath = await dialog.save({
-        defaultPath: filename,
-        filters: [{ name: "ZIP Archive", extensions: ["zip"] }],
-      });
-
-      if (savePath) {
-        const arrayBuffer = await blob.arrayBuffer();
-        await fs.writeFile(savePath, new Uint8Array(arrayBuffer));
-        return { filename: savePath, size: blob.size };
-      }
-    }
-  } catch (err) {
-    console.warn("Tauri dialog fallback to browser download:", err);
-  }
-
-  // Browser download fallback
+  // Standard Web & Electron browser download
   const downloadUrl = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = downloadUrl;

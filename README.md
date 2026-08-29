@@ -79,29 +79,28 @@ When clicking **"Download All"**, the system generates a dated folder (`exports/
 
 ---
 
-## 🖥️ Desktop Application Build (Tauri v2 for Windows & macOS)
+## 🖥️ Desktop Application Build (Electron for Windows & macOS)
 
-The application includes native desktop shell support powered by **Tauri v2** and bundled with a standalone Python FastAPI sidecar binary.
+The application includes native desktop shell support powered by **Electron** and bundled with a standalone Python FastAPI backend sidecar.
 
-### 📦 Prerequisites for Local Native Packaging
-- **Rust Toolchain**: Install from [https://rustup.rs](https://rustup.rs) (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` on macOS/Linux, or `rustup-init.exe` on Windows).
+### 📦 Prerequisites for Local Packaging
 - **Node.js**: v18+ or v20+.
 - **Python**: 3.10, 3.11, 3.12, or 3.13.
 
-### 🏗️ Build Local Desktop Installer:
+### 🏗️ Build Local Desktop Installers:
 ```bash
-# 1. Generate icons, build frontend bundle & compile backend sidecar binary
-npm run build
+# Build complete desktop application for Windows (.exe installer + portable)
+npm run electron:build:win
 
-# 2. Build native desktop installer (.exe / .msi on Windows, .dmg / .app on macOS)
-npx @tauri-apps/cli build
+# Or build for macOS (.dmg + .zip for MacBook)
+npm run electron:build:mac
 ```
 
-The generated application installers will be saved in:
-- **Windows**: `src-tauri/target/release/bundle/nsis/*.exe` & `src-tauri/target/release/bundle/msi/*.msi`
-- **macOS**: `src-tauri/target/release/bundle/dmg/*.dmg` & `src-tauri/target/release/bundle/macos/*.app`
+The generated application installers will be saved in the `release/` directory:
+- **Windows**: `release/NSE Market Suite Setup 1.0.0.exe` & `release/NSE Market Suite 1.0.0.exe` (Portable)
+- **macOS**: `release/NSE Market Suite-1.0.0.dmg` & `release/NSE Market Suite-1.0.0-mac.zip`
 
 ### ☁️ Automated Multi-Platform GitHub Actions Builds
-A ready-to-run GitHub Actions CI workflow is provided at `.github/workflows/build-tauri.yml`.
+A ready-to-run GitHub Actions CI workflow is provided at `.github/workflows/build-electron.yml`.
 Whenever you push to `main` or create a release tag (`v1.0.0`), GitHub Actions will automatically compile and produce downloadable binaries for **both Windows and macOS** (Apple Silicon + Intel universal).
 
