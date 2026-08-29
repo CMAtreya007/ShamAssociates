@@ -1,0 +1,19 @@
+{
+  "name": "nse-market-suite-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"python backend/run.py\" \"npm --prefix frontend run dev\"",
+    "start": "concurrently -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"python backend/run.py\" \"npm --prefix frontend run dev\"",
+    "build:frontend": "npm --prefix frontend run build",
+    "build:sidecar": "python backend/build_sidecar.py",
+    "build:icons": "python scripts/generate_icons.py",
+    "build": "npm run build:icons && npm run build:frontend && npm run build:sidecar",
+    "tauri": "tauri",
+    "tauri:build": "npm run build && tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "concurrently": "^9.1.2"
+  }
+}

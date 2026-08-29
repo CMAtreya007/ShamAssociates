@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Surface & Background */
+  --bg-app: #F8FAFC;          /* Clean soft cool-grey canvas (Slate 50) */
+  --bg-card: #FFFFFF;         /* Crisp pure white for cards and tables */
+  --bg-subtle: #F1F5F9;       /* Secondary hover/header surfaces (Slate 100) */
+  
+  /* Borders & Dividers */
+  --border-subtle: #E2E8F0;   /* Hairline slate border (Slate 200) */
+  --border-strong: #CBD5E1;   /* Active border / input lines (Slate 300) */
+  
+  /* Typography */
+  --text-primary: #0F172A;    /* Deep obsidian/slate for maximum contrast (Slate 900) */
+  --text-secondary: #475569;  /* Balanced neutral for labels and captions (Slate 600) */
+  --text-muted: #94A3B8;      /* Low-emphasis meta timestamps (Slate 400) */
+  
+  /* Semantic & Actions */
+  --brand-primary: #00B386;   /* Fresh Emerald/Mint (Groww-inspired vibrant green) */
+  --brand-primary-light: #E6F7F3;
+  --gain: #16A34A;            /* Semantic Green (Tailwind green-600) */
+  --gain-bg: #DCFCE7;         /* Soft green pill background */
+  --loss: #DC2626;            /* Semantic Red (Tailwind red-600) */
+  --loss-bg: #FEE2E2;         /* Soft red pill background */
+  --neutral-pill: #F1F5F9;
+}
+
+@layer base {
+  body {
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.01em;
+    overflow-x: hidden;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Crisp Clean Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-app);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* Breathing live pulse indicator */
+@keyframes breathing {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+}
+
+.animate-pulse-breathing {
+  animation: breathing 2s infinite ease-in-out;
+}
