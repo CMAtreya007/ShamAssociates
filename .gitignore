@@ -1,0 +1,28 @@
+# Node
+node_modules/
+frontend/dist/
+frontend/node_modules/
+.npm
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+backend/.venv/
+backend/build/
+backend/dist/
+backend/data/*.db-journal
+.pytest_cache/
+
+# Exports & Temporary
+exports/*
+!exports/.gitkeep
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Tauri build artifacts
+src-tauri/target/
