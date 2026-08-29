@@ -14,6 +14,12 @@ backend/dist/
 backend/data/*.db-journal
 .pytest_cache/
 
+# Electron build artifacts
+release/
+dist/
+resources/bin/*
+!resources/bin/.gitkeep
+
 # Exports & Temporary
 exports/*
 !exports/.gitkeep
@@ -23,6 +29,3 @@ exports/*
 Thumbs.db
 .vscode/
 .idea/
-
-# Tauri build artifacts
-src-tauri/target/
