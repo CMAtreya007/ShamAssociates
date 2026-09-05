@@ -60,12 +60,22 @@ def save_persisted_config():
 load_persisted_config()
 
 async def auto_export_to_downloads(target_date: Optional[str] = None, dest_folder: Optional[str] = None) -> List[str]:
-    """Generates the full Excel export bundle and copies all workbooks and zip to the user's Downloads folder."""
+    """Generates the full Excel export bundle and copies all workbooks and zip to the user's Downloads folder,
+    recording an audit log in SQLite in real time.
+    """
     dest_path_str = dest_folder or schedule_config.get("downloads_folder") or DEFAULT_DOWNLOADS_FOLDER
-    dest_dir = Path(dest_path_str)
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Expand user home tilde and normalize path
+    try:
+        dest_dir = Path(os.path.expanduser(dest_path_str)).resolve()
+        dest_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as dir_err:
+        logger.warning(f"Could not create custom destination folder '{dest_path_str}': {dir_err}. Falling back to default.")
+        dest_dir = Path(os.path.expanduser(DEFAULT_DOWNLOADS_FOLDER)).resolve()
+        dest_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Generating full market export bundle for auto-download to: {dest_dir}")
+    start_time = datetime.utcnow()
     zip_path, files, t_date = await generate_full_export_bundle(target_date)
 
     saved_files = []
@@ -83,6 +93,33 @@ async def auto_export_to_downloads(target_date: Optional[str] = None, dest_folde
             shutil.copy2(f, target_xlsx)
             saved_files.append(str(target_xlsx))
             logger.info(f"Saved Excel workbook to: {target_xlsx}")
+
+    # Real-time SQLite Audit Log Entry
+    try:
+        async with AsyncSessionLocal() as db:
+            audit_log = FetchLog(
+                run_timestamp=datetime.utcnow(),
+                trade_date=t_date or datetime.utcnow().strftime("%Y-%m-%d"),
+                status="SUCCESS" if saved_files else "FAILED",
+                source="AUTO_DOWNLOAD",
+                rows_fetched=len(saved_files),
+                indices_count=len([f for f in saved_files if "Indices" in f]),
+                stocks_count=len([f for f in saved_files if "Nifty_50" in f]),
+                stock_details_count=0,
+                corporate_actions_count=0,
+                duration_seconds=round((datetime.utcnow() - start_time).total_seconds(), 2),
+                error_message=None if saved_files else "No files could be saved to destination folder",
+                details={
+                    "destination_folder": str(dest_dir),
+                    "files_saved": [os.path.basename(f) for f in saved_files],
+                    "total_files": len(saved_files),
+                    "trade_date": t_date
+                }
+            )
+            db.add(audit_log)
+            await db.commit()
+    except Exception as log_err:
+        logger.warning(f"Failed to record auto-download audit log: {log_err}")
 
     return saved_files
 

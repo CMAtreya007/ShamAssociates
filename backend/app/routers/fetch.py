@@ -103,8 +103,8 @@ async def trigger_backfill(
     }
 
 @router.get("/logs", response_model=List[FetchLogSchema])
-async def get_fetch_logs(limit: int = 20, db: AsyncSession = Depends(get_db)):
-    """Returns audit log of all automated and manual fetch runs."""
+async def get_fetch_logs(limit: int = 50, db: AsyncSession = Depends(get_db)):
+    """Returns audit log of all automated and manual fetch runs in real time."""
     q = await db.execute(select(FetchLog).order_by(desc(FetchLog.id)).limit(limit))
     logs = q.scalars().all()
     return [FetchLogSchema.model_validate(l) for l in logs]

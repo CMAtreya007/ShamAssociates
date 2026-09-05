@@ -34,6 +34,11 @@ export function useLiveMarketStream(
   const prevLtpMap = useRef<Record<string, number>>({});
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<any>(null);
+  const onAutoDownloadTriggerRef = useRef(onAutoDownloadTrigger);
+
+  useEffect(() => {
+    onAutoDownloadTriggerRef.current = onAutoDownloadTrigger;
+  }, [onAutoDownloadTrigger]);
 
   // Sync initial stocks if provided
   useEffect(() => {
@@ -137,8 +142,8 @@ export function useLiveMarketStream(
             if (parsed.type === "LIVE_TICK" || parsed.type === "INITIAL_SNAPSHOT") {
               handleTickData(parsed);
             } else if (parsed.type === "AUTO_DOWNLOAD_TRIGGER") {
-              if (onAutoDownloadTrigger && parsed.trade_date) {
-                onAutoDownloadTrigger(parsed.trade_date);
+              if (onAutoDownloadTriggerRef.current && parsed.trade_date) {
+                onAutoDownloadTriggerRef.current(parsed.trade_date);
               }
             }
           } catch (err) {

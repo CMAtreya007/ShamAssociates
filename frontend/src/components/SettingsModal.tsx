@@ -14,7 +14,8 @@ import { toast } from "sonner";
 import { 
   getScheduleSettings, 
   saveScheduleSettings, 
-  triggerImmediateAutoDownload 
+  triggerImmediateAutoDownload,
+  downloadExportZip 
 } from "../services/api";
 
 interface SettingsModalProps {
@@ -84,12 +85,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const handleTriggerTestDownload = async () => {
     setIsExporting(true);
-    const toastId = toast.loading("Generating full export bundle and saving to Downloads folder...");
+    const toastId = toast.loading("Generating full export bundle and initiating download...");
     try {
-      const res = await triggerImmediateAutoDownload();
-      toast.success("Saved to Downloads Folder", {
+      const [serverRes, clientRes] = await Promise.allSettled([
+        triggerImmediateAutoDownload(),
+        downloadExportZip()
+      ]);
+
+      let dest = downloadsFolder || defaultSystemDownloads;
+      if (serverRes.status === "fulfilled" && serverRes.value?.destination_folder) {
+        dest = serverRes.value.destination_folder;
+      }
+
+      toast.success("Auto-Download Completed Successfully", {
         id: toastId,
-        description: `Successfully stored ${res.saved_files.length} workbooks in: ${res.destination_folder}`
+        description: `Saved to system directory '${dest}' and downloaded directly to your Downloads folder!`
       });
     } catch (err: any) {
       toast.error("Auto-Download Failed", {

@@ -673,6 +673,39 @@ class MasterExcelSyncManager:
         except Exception:
             pass
 
+        # Record real-time SQLite Audit Log Entry
+        try:
+            from app.models import FetchLog
+            all_detected_dates = []
+            for f in classified_files:
+                all_detected_dates.extend(f.get("dates_detected", []))
+            latest_detected = sorted(list(set(all_detected_dates)))[-1] if all_detected_dates else datetime.utcnow().strftime("%Y-%m-%d")
+
+            async with AsyncSessionLocal() as db:
+                audit_log = FetchLog(
+                    run_timestamp=datetime.utcnow(),
+                    trade_date=latest_detected,
+                    status="SUCCESS" if (indices_count > 0 or nifty50_count > 0) else "FAILED",
+                    source="EXCEL_UPLOAD",
+                    rows_fetched=indices_count + nifty50_count,
+                    indices_count=indices_count,
+                    stocks_count=nifty50_count,
+                    stock_details_count=0,
+                    corporate_actions_count=0,
+                    duration_seconds=0.0,
+                    error_message=None if (indices_count > 0 or nifty50_count > 0) else "No valid stock or index records found in uploaded workbooks",
+                    details={
+                        "files_processed": len(file_list),
+                        "indices_imported": indices_count,
+                        "nifty50_imported": nifty50_count,
+                        "classified_files": classified_files
+                    }
+                )
+                db.add(audit_log)
+                await db.commit()
+        except Exception as log_err:
+            logger.warning(f"Failed to record Excel upload audit log: {log_err}")
+
         logger.info(f"Ingestion complete: {indices_count} index records, {nifty50_count} stock records imported.")
         return {
             "success": True,
