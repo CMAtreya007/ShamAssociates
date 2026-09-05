@@ -59,13 +59,10 @@ def save_persisted_config():
 # Load initial config on module import
 load_persisted_config()
 
-async def auto_export_to_downloads(target_date: Optional[str] = None) -> List[str]:
+async def auto_export_to_downloads(target_date: Optional[str] = None, dest_folder: Optional[str] = None) -> List[str]:
     """Generates the full Excel export bundle and copies all workbooks and zip to the user's Downloads folder."""
-    if not schedule_config.get("auto_download_enabled", True):
-        logger.info("Auto-download to Downloads folder is disabled in settings.")
-        return []
-
-    dest_dir = Path(schedule_config.get("downloads_folder") or DEFAULT_DOWNLOADS_FOLDER)
+    dest_path_str = dest_folder or schedule_config.get("downloads_folder") or DEFAULT_DOWNLOADS_FOLDER
+    dest_dir = Path(dest_path_str)
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Generating full market export bundle for auto-download to: {dest_dir}")
@@ -118,12 +115,38 @@ async def scheduled_daily_fetch_job():
     logger.info("Executing scheduled sync for active trading day...")
     fetch_log = await run_market_sync(source="AUTOMATED", fetch_details=True)
 
-    # If sync succeeded, automatically update master workbooks and save Excel files to user's Downloads folder
-    if fetch_log and fetch_log.status == "SUCCESS":
+    # If sync succeeded, automatically update master workbooks and save Excel files to all user download folders
+    if fetch_log and fetch_log.status in ("SUCCESS", "PARTIAL"):
         try:
             await master_excel_sync.append_daily_data(fetch_log.trade_date)
-            saved = await auto_export_to_downloads(fetch_log.trade_date)
-            logger.info(f"Auto-download and Master sync completed successfully: {len(saved)} files saved to {schedule_config['downloads_folder']}")
+            
+            # 1. Save to all active user-configured download directories in SQLite
+            from app.models import UserSettings
+            from sqlalchemy import select
+
+            async with AsyncSessionLocal() as db:
+                q_users = await db.execute(select(UserSettings).where(UserSettings.auto_download_enabled == True))
+                user_settings_list = q_users.scalars().all()
+                
+                if user_settings_list:
+                    for u_set in user_settings_list:
+                        u_folder = u_set.downloads_folder or DEFAULT_DOWNLOADS_FOLDER
+                        saved = await auto_export_to_downloads(fetch_log.trade_date, dest_folder=u_folder)
+                        u_set.last_download_date = fetch_log.trade_date
+                        logger.info(f"Auto-download completed for user '{u_set.username}': {len(saved)} files saved to {u_folder}")
+                    await db.commit()
+                else:
+                    saved = await auto_export_to_downloads(fetch_log.trade_date)
+                    logger.info(f"Auto-download completed: {len(saved)} files saved to default folder")
+
+            # 2. Real-time WebSocket broadcast to connected browser clients to auto-download
+            from app.services.live_stream import live_stream_manager
+            await live_stream_manager.broadcast({
+                "type": "AUTO_DOWNLOAD_TRIGGER",
+                "trade_date": fetch_log.trade_date,
+                "timestamp": datetime.utcnow().isoformat(),
+                "message": f"Daily market sync completed for {fetch_log.trade_date}. Automatic download initiated."
+            })
         except Exception as e:
             logger.error(f"Error during master sync / auto-export to downloads folder: {e}")
 

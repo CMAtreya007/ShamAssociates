@@ -1,6 +1,6 @@
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, Text, JSON, UniqueConstraint, Index
+    Column, Integer, String, Float, Boolean, DateTime, Text, JSON, UniqueConstraint, Index
 )
 from app.database import Base
 
@@ -176,3 +176,16 @@ class FetchLog(Base):
     duration_seconds = Column(Float, default=0.0)
     error_message = Column(Text, nullable=True)
     details = Column(JSON, nullable=True)
+
+class UserSettings(Base):
+    __tablename__ = "user_settings"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    username = Column(String(50), nullable=False, unique=True, index=True)
+    downloads_folder = Column(String(500), nullable=False)
+    auto_download_enabled = Column(Boolean, default=True)
+    schedule_times = Column(JSON, default=lambda: ["15:45", "16:30", "17:30"])
+    auto_download_mode = Column(String(50), default="MARKET_SYNC")  # REAL_TIME, MARKET_SYNC, SCHEDULED
+    last_download_date = Column(String(20), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

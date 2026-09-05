@@ -55,7 +55,9 @@ export function App() {
     isConnected: isStreamConnected,
     lastTickTime,
     priceFlashMap
-  } = useLiveMarketStream(stocks);
+  } = useLiveMarketStream(stocks, (tradeDate) => {
+    downloadAll(tradeDate);
+  });
 
   const displayStocks = (isLatestDate && liveStocks.length > 0) ? liveStocks : stocks;
 

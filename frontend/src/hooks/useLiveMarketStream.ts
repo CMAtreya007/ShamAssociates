@@ -20,7 +20,10 @@ export interface LiveStreamState {
   priceFlashMap: Record<string, "UP" | "DOWN">;
 }
 
-export function useLiveMarketStream(initialStocks: Nifty50Stock[] = []) {
+export function useLiveMarketStream(
+  initialStocks: Nifty50Stock[] = [],
+  onAutoDownloadTrigger?: (tradeDate: string) => void
+) {
   const [stocks, setStocks] = useState<Nifty50Stock[]>(initialStocks);
   const [pulse, setPulse] = useState<MarketPulseData>({});
   const [marketStatus, setMarketStatus] = useState<string>("OPEN");
@@ -133,6 +136,10 @@ export function useLiveMarketStream(initialStocks: Nifty50Stock[] = []) {
             const parsed = JSON.parse(event.data);
             if (parsed.type === "LIVE_TICK" || parsed.type === "INITIAL_SNAPSHOT") {
               handleTickData(parsed);
+            } else if (parsed.type === "AUTO_DOWNLOAD_TRIGGER") {
+              if (onAutoDownloadTrigger && parsed.trade_date) {
+                onAutoDownloadTrigger(parsed.trade_date);
+              }
             }
           } catch (err) {
             console.warn("Failed to parse live WS tick:", err);

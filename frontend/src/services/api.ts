@@ -138,12 +138,18 @@ export async function triggerBackfill(date: string, background: boolean = false)
   return res.json();
 }
 
-export async function getScheduleSettings(): Promise<{
+export interface UserScheduleSettings {
+  username?: string;
   auto_download_enabled: boolean;
   schedule_times: string[];
   downloads_folder: string;
+  default_system_downloads?: string;
+  auto_download_mode?: string;
+  last_download_date?: string | null;
   next_run_time: string | null;
-}> {
+}
+
+export async function getScheduleSettings(): Promise<UserScheduleSettings> {
   const res = await authFetch(`${API_BASE}/settings/schedule`);
   if (!res.ok) throw new Error("Failed to fetch schedule settings");
   return res.json();
@@ -153,7 +159,8 @@ export async function saveScheduleSettings(data: {
   auto_download_enabled: boolean;
   schedule_times: string[];
   downloads_folder?: string;
-}): Promise<{ success: boolean; message: string; config: any; next_run_time: string | null }> {
+  auto_download_mode?: string;
+}): Promise<{ success: boolean; message: string; user_settings?: any; next_run_time: string | null }> {
   const res = await authFetch(`${API_BASE}/settings/schedule`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
