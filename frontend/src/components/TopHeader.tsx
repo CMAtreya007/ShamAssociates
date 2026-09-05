@@ -12,9 +12,13 @@ import {
   CheckCircle2,
   AlertCircle,
   CalendarDays,
-  Sparkles
+  Sparkles,
+  UploadCloud,
+  LogOut,
+  User as UserIcon,
+  ShieldCheck
 } from "lucide-react";
-import { FetchStatus } from "../types";
+import { FetchStatus, AuthUser } from "../types";
 
 interface TopHeaderProps {
   status: FetchStatus | null;
@@ -24,12 +28,15 @@ interface TopHeaderProps {
   onSync: () => void;
   onExport: () => void;
   onOpenLogs: () => void;
+  onOpenUpload?: () => void;
   onOpenCommand: () => void;
   isSyncing: boolean;
   isExporting: boolean;
   isStreamConnected?: boolean;
   marketStatus?: string;
   lastTickTime?: string | null;
+  user?: AuthUser | null;
+  onLogout?: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -40,12 +47,15 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onSync,
   onExport,
   onOpenLogs,
+  onOpenUpload,
   onOpenCommand,
   isSyncing,
   isExporting,
   isStreamConnected = false,
   marketStatus = "OPEN",
   lastTickTime = null,
+  user = null,
+  onLogout,
 }) => {
   // Live IST Clock
   const [istTime, setIstTime] = useState<string>("");
@@ -192,6 +202,18 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </div>
         </div>
 
+        {/* Import Historical Excel Sheets Button */}
+        {onOpenUpload && (
+          <button
+            onClick={onOpenUpload}
+            title="Import & Auto-Classify Historical Excel Sheets"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 transition text-xs font-medium"
+          >
+            <UploadCloud className="w-4 h-4 text-emerald-600" />
+            <span className="hidden md:inline">Import Excel</span>
+          </button>
+        )}
+
         {/* Audit Logs Button */}
         <button
           onClick={onOpenLogs}
@@ -201,14 +223,18 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           <History className="w-4 h-4" />
         </button>
 
-        {/* Manual Sync Trigger */}
+        {/* Adaptive Sync Trigger Button with Cadence Indicator */}
         <button
           onClick={onSync}
           disabled={isSyncing}
-          className="p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 transition disabled:opacity-50"
-          title="Trigger Immediate Sync"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 transition disabled:opacity-50 text-xs font-medium font-mono group"
+          title={`Auto-Sync Cadence: ${status?.adaptive_sync?.interval_label || (marketStatus.includes("OPEN") ? "Every 1 min (Market Open)" : "Every 10 min (Market Closed)")}. Click to trigger immediate manual sync.`}
         >
-          <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin text-blue-600" : ""}`} />
+          <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-blue-600" : "text-slate-500 group-hover:text-slate-700"}`} />
+          <span className="hidden sm:inline text-[11px]">
+            {isSyncing ? "Syncing..." : status?.adaptive_sync?.is_market_open ? "1m Auto-Sync" : "10m Auto-Sync"}
+          </span>
+          <span className={`w-1.5 h-1.5 rounded-full ${status?.adaptive_sync?.is_market_open ? "bg-emerald-500 animate-pulse" : "bg-amber-400"}`} />
         </button>
 
         {/* Signature Action: "Download All" Groww-Style Emerald Button */}
@@ -224,6 +250,33 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           )}
           <span>Download All</span>
         </button>
+
+        {/* Authenticated User Profile & Logout Action */}
+        {user && (
+          <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-100/90 border border-slate-200/80">
+              <div className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold uppercase">
+                {user.username.charAt(0)}
+              </div>
+              <div className="hidden lg:flex flex-col text-left leading-none">
+                <span className="text-xs font-bold text-slate-800">{user.name}</span>
+                <span className="text-[9px] font-mono text-emerald-700 uppercase font-semibold">
+                  {user.role}
+                </span>
+              </div>
+            </div>
+
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                title="Sign out of testing terminal"
+                className="p-2 rounded-xl bg-slate-100/80 hover:bg-red-50 text-slate-500 hover:text-red-600 border border-slate-200 hover:border-red-200 transition"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
 
       </div>
 

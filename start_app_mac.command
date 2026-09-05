@@ -56,10 +56,10 @@ trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" INT TERM EXIT
 
 # Wait 3 seconds and open the application in the default browser
 sleep 3
-open "http://localhost:5173"
+open "http://localhost:5180"
 
 echo ""
-echo "NSEpulse is running at: http://localhost:5173"
+echo "NSEpulse is running at: http://localhost:5180"
 echo "Press Ctrl+C in this terminal window to stop all services."
 echo ""
 

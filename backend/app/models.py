@@ -153,6 +153,7 @@ class CorporateAnnouncement(Base):
     subject = Column(Text, nullable=False)
     description = Column(Text, nullable=True)
     attachment_url = Column(Text, nullable=True)
+    raw_data = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (

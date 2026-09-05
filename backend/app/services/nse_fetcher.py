@@ -5,6 +5,7 @@ import asyncio
 import urllib.parse
 from datetime import datetime, date, timedelta
 from typing import Dict, Any, List, Optional, Tuple
+import pytz
 
 from curl_cffi import requests
 from sqlalchemy import select, and_
@@ -176,6 +177,35 @@ class NSEFetcher:
             logger.warning(f"Could not verify holiday calendar: {e}")
 
         return False, "Trading Day"
+
+    def is_market_open(self) -> Tuple[bool, str]:
+        """
+        Determines if Indian Stock Market (NSE) is currently open:
+        - Open: Mon-Fri between 09:15 and 15:30 IST (excluding trading holidays)
+        - Closed: Weekends, Holidays, Pre-Market (< 09:15), Post-Market (> 15:30)
+        """
+        ist_tz = pytz.timezone("Asia/Kolkata")
+        now_ist = datetime.now(ist_tz)
+        
+        # Check weekend
+        if now_ist.weekday() >= 5:
+            return False, f"Weekend ({now_ist.strftime('%A')})"
+        
+        # Check trading holiday
+        is_holiday, reason = self.is_market_holiday_or_weekend(now_ist.date())
+        if is_holiday:
+            return False, reason
+        
+        # Market hours: 09:15 - 15:30 IST
+        market_open_time = now_ist.replace(hour=9, minute=15, second=0, microsecond=0)
+        market_close_time = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
+        
+        if market_open_time <= now_ist <= market_close_time:
+            return True, "Market Open (09:15 - 15:30 IST)"
+        elif now_ist < market_open_time:
+            return False, "Pre-Market (Opens at 09:15 IST)"
+        else:
+            return False, "Post-Market (Closed at 15:30 IST)"
 
     def fetch_all_indices(self) -> Optional[List[Dict[str, Any]]]:
         """Fetches all indices (Broad, Sectoral, Thematic, Strategy)."""

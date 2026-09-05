@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models import FetchLog, Nifty50Daily
 from app.schemas import FetchStatusResponse, FetchLogSchema, ManualFetchRequest
 from app.services.nse_fetcher import run_market_sync, is_syncing_flag
-from app.services.scheduler import get_next_run_time
+from app.services.scheduler import get_next_run_time, get_adaptive_sync_info
 from app.services.historical_backfill import HistoricalBackfillEngine
 
 router = APIRouter(prefix="/api/fetch", tags=["Data Fetching & Scheduler"])
@@ -33,6 +33,7 @@ async def get_fetch_status(db: AsyncSession = Depends(get_db)):
     today_synced = (latest_trade_date == today_str)
 
     next_run = get_next_run_time()
+    adaptive_info = get_adaptive_sync_info()
 
     return FetchStatusResponse(
         last_sync=FetchLogSchema.model_validate(last_log) if last_log else None,
@@ -40,7 +41,8 @@ async def get_fetch_status(db: AsyncSession = Depends(get_db)):
         today_synced=today_synced,
         latest_trade_date=latest_trade_date,
         total_records=total_records,
-        next_scheduled_run=next_run
+        next_scheduled_run=next_run,
+        adaptive_sync=adaptive_info
     )
 
 @router.post("/run")

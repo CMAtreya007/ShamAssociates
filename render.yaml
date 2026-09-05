@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: nse-market-terminal
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: DEBUG
+        value: "false"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: AUTH_USER_ADMIN_PASS
+        value: "Admin@NSE2025!"
+      - key: AUTH_USER_ANALYST_PASS
+        value: "Analyst@NSE2025!"
+      - key: AUTH_USER_TESTER_PASS
+        value: "Tester@NSE2025!"

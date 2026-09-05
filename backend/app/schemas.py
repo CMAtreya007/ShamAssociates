@@ -1,8 +1,10 @@
 from typing import Optional, List, Any, Dict
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class Nifty50StockSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: Optional[int] = None
     date: str
     symbol: str
@@ -27,10 +29,9 @@ class Nifty50StockSchema(BaseModel):
     last_update_time: Optional[str] = None
     catalysts: Optional[List[Dict[str, Any]]] = None
 
-    class Config:
-        from_attributes = True
-
 class StockDetailSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: Optional[int] = None
     date: str
     symbol: str
@@ -54,10 +55,9 @@ class StockDetailSchema(BaseModel):
     meta_data: Optional[Dict[str, Any]] = None
     actions: Optional[List[Dict[str, Any]]] = None
 
-    class Config:
-        from_attributes = True
-
 class IndexDailySchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: Optional[int] = None
     date: str
     index_category: str
@@ -84,10 +84,9 @@ class IndexDailySchema(BaseModel):
     one_month_ago_val: Optional[float] = None
     one_year_ago_val: Optional[float] = None
 
-    class Config:
-        from_attributes = True
-
 class CorporateActionSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: Optional[int] = None
     symbol: str
     company_name: Optional[str] = None
@@ -104,10 +103,9 @@ class CorporateActionSchema(BaseModel):
     priority_level: int = 3
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
-
 class CorporateAnnouncementSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: Optional[int] = None
     symbol: str
     company_name: Optional[str] = None
@@ -117,10 +115,9 @@ class CorporateAnnouncementSchema(BaseModel):
     attachment_url: Optional[str] = None
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
-
 class FetchLogSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     run_timestamp: datetime
     trade_date: Optional[str] = None
@@ -135,9 +132,6 @@ class FetchLogSchema(BaseModel):
     error_message: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
-
 class FetchStatusResponse(BaseModel):
     last_sync: Optional[FetchLogSchema] = None
     is_syncing: bool = False
@@ -145,6 +139,7 @@ class FetchStatusResponse(BaseModel):
     latest_trade_date: Optional[str] = None
     total_records: int = 0
     next_scheduled_run: Optional[str] = None
+    adaptive_sync: Optional[Dict[str, Any]] = None
 
 class ManualFetchRequest(BaseModel):
     source: str = "MANUAL"

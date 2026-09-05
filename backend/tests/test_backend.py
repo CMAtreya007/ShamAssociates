@@ -49,7 +49,7 @@ async def test_market_sync_and_excel_export():
 
     zip_path, files, export_date = await generate_full_export_bundle()
     assert os.path.exists(zip_path)
-    assert len(files) == 2
+    assert len(files) >= 2
     for f in files:
         assert os.path.exists(f)
         assert os.path.getsize(f) > 0

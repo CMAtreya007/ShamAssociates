@@ -2,10 +2,12 @@ import os
 from pathlib import Path
 from datetime import datetime, date as dt_date
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, File, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
+import tempfile
+import shutil
 
 from app.database import get_db
 from app.models import Nifty50Daily, FetchLog
@@ -101,3 +103,119 @@ async def download_file(filename: str):
         filename=file_path.name,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+@router.get("/master/indices")
+async def download_master_indices():
+    """Downloads the consolidated multi-sheet Broad Market Indices Master Workbook."""
+    from app.services.excel_sync import master_excel_sync
+    path = master_excel_sync.get_master_indices_path()
+    if not os.path.exists(path):
+        await master_excel_sync.build_or_rebuild_indices_master()
+    
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Master Indices workbook not found.")
+
+    return FileResponse(
+        path=path,
+        filename="broad_market_indices_master.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="broad_market_indices_master.xlsx"'}
+    )
+
+@router.get("/master/nifty50")
+async def download_master_nifty50():
+    """Downloads the consolidated multi-sheet Nifty 50 Master Workbook."""
+    from app.services.excel_sync import master_excel_sync
+    path = master_excel_sync.get_master_nifty50_path()
+    if not os.path.exists(path):
+        await master_excel_sync.build_or_rebuild_nifty50_master()
+    
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Master Nifty 50 workbook not found.")
+
+    return FileResponse(
+        path=path,
+        filename="nifty50_daily_master.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="nifty50_daily_master.xlsx"'}
+    )
+
+@router.get("/master/bundle")
+async def download_master_bundle():
+    """Downloads both master workbooks bundled in a ZIP archive."""
+    import zipfile
+    from app.services.excel_sync import master_excel_sync
+    
+    idx_path = master_excel_sync.get_master_indices_path()
+    n50_path = master_excel_sync.get_master_nifty50_path()
+    
+    if not os.path.exists(idx_path) or not os.path.exists(n50_path):
+        await master_excel_sync.sync_all_masters()
+    
+    today_str = dt_date.today().strftime("%Y-%m-%d")
+    zip_path = Path(settings.EXPORT_DIR) / f"NSE_Master_Workbooks_{today_str}.zip"
+    
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        if os.path.exists(idx_path):
+            zf.write(idx_path, arcname="broad_market_indices_master.xlsx")
+        if os.path.exists(n50_path):
+            zf.write(n50_path, arcname="nifty50_daily_master.xlsx")
+
+    return FileResponse(
+        path=str(zip_path),
+        filename=f"NSE_Master_Workbooks_{today_str}.zip",
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="NSE_Master_Workbooks_{today_str}.zip"'}
+    )
+
+@router.post("/master/rebuild")
+async def rebuild_master_workbooks():
+    """Rebuilds both Master Workbooks from all historical records in SQLite."""
+    from app.services.excel_sync import master_excel_sync
+    idx_path, n50_path = await master_excel_sync.sync_all_masters()
+    return {
+        "success": True,
+        "message": "Master workbooks successfully rebuilt from database.",
+        "master_indices": idx_path,
+        "master_nifty50": n50_path
+    }
+
+@router.post("/master/upload")
+async def upload_and_ingest_excel_files(
+    files: List[UploadFile] = File(...)
+):
+    """
+    Bulk uploads multiple historical Excel workbooks (*.xlsx),
+    automatically classifies each file into NIFTY 50 or Broad Market Indices,
+    extracts all multi-sheet data into the local SQLite database,
+    and updates both Master Workbooks.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded.")
+
+    temp_dir = tempfile.mkdtemp(prefix="nse_upload_")
+    saved_paths = []
+
+    try:
+        for f in files:
+            if not f.filename.endswith(".xlsx"):
+                continue
+            dst_path = os.path.join(temp_dir, f.filename)
+            with open(dst_path, "wb") as buffer:
+                shutil.copyfileobj(f.file, buffer)
+            saved_paths.append(dst_path)
+
+        if not saved_paths:
+            raise HTTPException(status_code=400, detail="No valid .xlsx files found in upload.")
+
+        from app.services.excel_sync import master_excel_sync
+        result = await master_excel_sync.ingest_historical_excel_files(saved_paths)
+        return result
+
+    finally:
+        # Clean up temporary upload directory
+        try:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            pass
+

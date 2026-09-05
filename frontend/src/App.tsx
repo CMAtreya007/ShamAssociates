@@ -10,6 +10,9 @@ import { StockDetailDrawer } from "./components/StockDetailDrawer";
 import { CommandPalette } from "./components/CommandPalette";
 import { SettingsModal } from "./components/SettingsModal";
 import { FetchLogsModal } from "./components/FetchLogsModal";
+import { ExcelUploadModal } from "./components/ExcelUploadModal";
+import { LoginView } from "./components/LoginView";
+import { useAuth } from "./hooks/useAuth";
 import { useExportMarketData } from "./hooks/useExportMarketData";
 import { useLiveMarketStream } from "./hooks/useLiveMarketStream";
 import { Nifty50Stock, IndexDaily, FetchStatus } from "./types";
@@ -17,12 +20,15 @@ import {
   getFetchStatus, 
   fetchAvailableDates, 
   fetchNifty50, 
-  fetchIndices,
-  triggerManualSync,
+  fetchIndices, 
+  triggerManualSync, 
   triggerBackfill 
 } from "./services/api";
+import { Loader2 } from "lucide-react";
 
 export function App() {
+  const { user, isAuthenticated, isLoading: isAuthLoading, login, logout } = useAuth();
+  
   const [status, setStatus] = useState<FetchStatus | null>(null);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>("");
@@ -36,6 +42,7 @@ export function App() {
   const [isCommandOpen, setIsCommandOpen] = useState(false);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
 
   // Export Hook
   const { downloadAll, exporting } = useExportMarketData();
@@ -54,6 +61,7 @@ export function App() {
 
   // Load Status & Dates
   const loadStatusAndDates = useCallback(async () => {
+    if (!isAuthenticated) return;
     try {
       const [statusData, dates] = await Promise.all([
         getFetchStatus(),
@@ -68,11 +76,11 @@ export function App() {
     } catch (err) {
       console.error("Failed to load initial metadata:", err);
     }
-  }, [selectedDate]);
+  }, [selectedDate, isAuthenticated]);
 
   // Load Market Data for selected date
   const loadMarketData = useCallback(async (dateToLoad: string) => {
-    if (!dateToLoad) return;
+    if (!dateToLoad || !isAuthenticated) return;
     setIsLoadingStocks(true);
     try {
       const [stockData, secData] = await Promise.all([
@@ -87,17 +95,19 @@ export function App() {
     } finally {
       setIsLoadingStocks(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
-    loadStatusAndDates();
-  }, []);
+    if (isAuthenticated) {
+      loadStatusAndDates();
+    }
+  }, [isAuthenticated, loadStatusAndDates]);
 
   useEffect(() => {
-    if (selectedDate) {
+    if (selectedDate && isAuthenticated) {
       loadMarketData(selectedDate);
     }
-  }, [selectedDate, loadMarketData]);
+  }, [selectedDate, isAuthenticated, loadMarketData]);
 
   // Polling when sync is in progress
   useEffect(() => {
@@ -177,6 +187,37 @@ export function App() {
     }
   };
 
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen w-screen flex flex-col items-center justify-center bg-slate-950 text-white font-sans">
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative">
+            <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center animate-pulse">
+              <Loader2 className="w-7 h-7 text-emerald-400 animate-spin" />
+            </div>
+          </div>
+          <div className="text-center">
+            <h2 className="text-sm font-bold text-white tracking-wide">Connecting to NSE Terminal</h2>
+            <p className="text-xs text-slate-400 mt-1">Verifying encrypted security session...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <>
+        <Toaster 
+          theme="dark" 
+          position="top-center" 
+          richColors 
+        />
+        <LoginView onLogin={login} />
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen w-screen flex flex-col bg-slate-50 text-slate-900 overflow-x-hidden font-sans select-none">
       
@@ -194,7 +235,7 @@ export function App() {
         }} 
       />
 
-      {/* Top Header Bar with Live Ticker & Market Status */}
+      {/* Top Header Bar with Live Ticker, Market Status & User Profile */}
       <TopHeader
         status={status}
         selectedDate={selectedDate}
@@ -203,12 +244,15 @@ export function App() {
         onSync={handleManualSync}
         onExport={() => downloadAll(selectedDate)}
         onOpenLogs={() => setIsLogsOpen(true)}
+        onOpenUpload={() => setIsUploadOpen(true)}
         onOpenCommand={() => setIsCommandOpen(true)}
         isSyncing={!!status?.is_syncing}
         isExporting={exporting}
         isStreamConnected={isStreamConnected}
         marketStatus={marketStatus}
         lastTickTime={lastTickTime}
+        user={user}
+        onLogout={logout}
       />
 
       {/* Main Terminal Viewport with Sidebar & Content */}
@@ -275,6 +319,16 @@ export function App() {
           onClose={() => setSelectedStockSymbol(null)}
         />
       )}
+
+      {/* Bulk Excel Ingestion & Auto-Classification Modal */}
+      <ExcelUploadModal
+        isOpen={isUploadOpen}
+        onClose={() => setIsUploadOpen(false)}
+        onSuccess={() => {
+          loadStatusAndDates();
+          toast.success("Excel files imported and Master Workbooks updated!");
+        }}
+      />
 
       {/* Audit Logs Modal */}
       <FetchLogsModal

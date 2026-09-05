@@ -132,14 +132,18 @@ export const TopBar: React.FC<TopBarProps> = ({
           <History className="w-4 h-4" />
         </button>
 
-        {/* Manual Sync Trigger */}
+        {/* Adaptive Sync Trigger */}
         <button
           onClick={onSync}
           disabled={isSyncing}
-          className="p-1.5 rounded-lg bg-[var(--bg-base)] hover:bg-[#1F2530] text-[var(--text-secondary)] hover:text-white border border-[var(--border-hairline)] transition disabled:opacity-50"
-          title="Trigger Immediate Sync"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[var(--bg-base)] hover:bg-[#1F2530] text-[var(--text-secondary)] hover:text-white border border-[var(--border-hairline)] transition disabled:opacity-50 text-xs font-mono"
+          title={`Auto-Sync: ${status?.adaptive_sync?.interval_label || "1 min during market open, 10 min during market close"}. Click to trigger immediate manual sync.`}
         >
-          <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin text-blue-400" : ""}`} />
+          <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-blue-400" : ""}`} />
+          <span className="hidden sm:inline text-[10px]">
+            {isSyncing ? "Syncing..." : status?.adaptive_sync?.is_market_open ? "1m Sync" : "10m Sync"}
+          </span>
+          <span className={`w-1.5 h-1.5 rounded-full ${status?.adaptive_sync?.is_market_open ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
         </button>
 
         {/* Signature Action: "Download All" Excel Export */}

@@ -31,12 +31,12 @@ if not exist "frontend\node_modules" (
 echo [2/3] Launching FastAPI Backend on http://127.0.0.1:8756 ...
 start "NSEpulse Backend" cmd /c "cd /d ""%~dp0backend"" && python run.py"
 
-echo [3/3] Launching Frontend Dashboard on http://localhost:5173 ...
+echo [3/3] Launching Frontend Dashboard on http://localhost:5180 ...
 start "NSEpulse Frontend" cmd /c "cd /d ""%~dp0frontend"" && npm run dev"
 
 echo.
 echo Launching NSEpulse...
 timeout /t 3 >nul
-start http://localhost:5173
+start http://localhost:5180
 echo.
-echo NSEpulse is running at http://localhost:5173
+echo NSEpulse is running at http://localhost:5180

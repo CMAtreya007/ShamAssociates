@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "concurrently -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"python backend/run.py\" \"npm --prefix frontend run dev\"",
     "start": "npm run dev",
-    "electron:dev": "concurrently -n \"BACKEND,FRONTEND,ELECTRON\" -c \"blue,green,magenta\" \"python backend/run.py\" \"npm --prefix frontend run dev\" \"wait-on tcp:5173 && wait-on tcp:8756 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "electron:dev": "concurrently -n \"BACKEND,FRONTEND,ELECTRON\" -c \"blue,green,magenta\" \"python backend/run.py\" \"npm --prefix frontend run dev\" \"wait-on tcp:5180 && wait-on tcp:8756 && cross-env VITE_DEV_SERVER_URL=http://localhost:5180 electron .\"",
     "build:frontend": "npm --prefix frontend run build",
     "build:sidecar": "python backend/build_sidecar.py",
     "build:icons": "python scripts/generate_icons.py",

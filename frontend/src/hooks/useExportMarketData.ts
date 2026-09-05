@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
+import { authFetch, API_BASE } from "../services/api";
 
 export function useExportMarketData() {
   const [exporting, setExporting] = useState(false);
@@ -13,8 +14,14 @@ export function useExportMarketData() {
 
       const dateStr = selectedDate || new Date().toISOString().split("T")[0];
 
+      const token = localStorage.getItem("nse_terminal_auth_token");
+      let url = `${API_BASE}/export/full?date=${encodeURIComponent(dateStr)}`;
+      if (token) {
+        url += `&token=${encodeURIComponent(token)}`;
+      }
+
       setProgressStage("Generating formatted openpyxl workbooks...");
-      const response = await fetch(`http://127.0.0.1:8756/api/export/full?date=${encodeURIComponent(dateStr)}`, {
+      const response = await authFetch(url, {
         method: "POST"
       });
 

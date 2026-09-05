@@ -88,7 +88,7 @@ export const LeftRail: React.FC<LeftRailProps> = ({
         </button>
 
         <a
-          href="http://127.0.0.1:8756/docs"
+          href="/docs"
           target="_blank"
           rel="noopener noreferrer"
           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] transition"

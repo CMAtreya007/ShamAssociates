@@ -1,12 +1,23 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from typing import Dict, Any, List
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends, status
+from typing import Dict, Any, List, Optional
 from app.services.live_stream import live_stream_manager
+from app.services.auth import get_current_user, verify_ws_token
 
 router = APIRouter(tags=["Live Market Streaming"])
 
 @router.websocket("/api/ws/live")
-async def websocket_live_market(websocket: WebSocket):
+async def websocket_live_market(
+    websocket: WebSocket,
+    token: Optional[str] = Query(None)
+):
     """Real-time bi-directional WebSocket connection for zero-delay live NSE stock market updates."""
+    # Optional token verification if auth is required
+    if token:
+        user = verify_ws_token(token)
+        if not user:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
     await live_stream_manager.connect(websocket)
     try:
         while True:
@@ -20,7 +31,7 @@ async def websocket_live_market(websocket: WebSocket):
         live_stream_manager.disconnect(websocket)
 
 @router.get("/api/data/live")
-async def get_live_market_cache() -> Dict[str, Any]:
+async def get_live_market_cache(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """Returns the latest live market snapshot with 0ms in-memory latency."""
     if not live_stream_manager.cached_nifty50:
         await live_stream_manager.fetch_live_tick()

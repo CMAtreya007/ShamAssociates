@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Nifty50Stock } from "../types";
+import { authFetch, API_BASE } from "../services/api";
 
 export interface MarketPulseData {
   market_status?: string;
@@ -83,7 +84,7 @@ export function useLiveMarketStream(initialStocks: Nifty50Stock[] = []) {
   // Fallback REST fetcher
   const fetchRestTick = useCallback(async () => {
     try {
-      const res = await fetch("http://127.0.0.1:8756/api/data/live");
+      const res = await authFetch(`${API_BASE}/data/live`);
       if (res.ok) {
         const data = await res.json();
         handleTickData(data);
@@ -97,9 +98,25 @@ export function useLiveMarketStream(initialStocks: Nifty50Stock[] = []) {
   useEffect(() => {
     let isCancelled = false;
 
+    const getWebSocketUrl = () => {
+      const token = localStorage.getItem("nse_terminal_auth_token");
+      let base = "";
+      if (import.meta.env.VITE_WS_URL) {
+        base = import.meta.env.VITE_WS_URL;
+      } else if (typeof window !== "undefined") {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const isDev = window.location.port === "5180" || window.location.port === "5173" || window.location.port === "5175";
+        const host = isDev ? "127.0.0.1:8756" : window.location.host;
+        base = `${protocol}//${host}/api/ws/live`;
+      } else {
+        base = "ws://127.0.0.1:8756/api/ws/live";
+      }
+      return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+    };
+
     const connectWebSocket = () => {
       try {
-        const wsUrl = "ws://127.0.0.1:8756/api/ws/live";
+        const wsUrl = getWebSocketUrl();
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 

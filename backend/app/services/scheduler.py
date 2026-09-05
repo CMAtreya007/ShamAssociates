@@ -2,6 +2,7 @@ import os
 import json
 import shutil
 import logging
+import asyncio
 from datetime import datetime, date
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -11,6 +12,7 @@ import pytz
 
 from app.services.nse_fetcher import run_market_sync, NSEFetcher
 from app.services.excel_exporter import generate_full_export_bundle
+from app.services.excel_sync import master_excel_sync
 from app.models import FetchLog
 from app.database import AsyncSessionLocal
 from app.config import settings, DATA_DIR
@@ -28,7 +30,7 @@ CONFIG_FILE = DATA_DIR / "scheduler_config.json"
 # In-memory runtime configuration with disk persistence
 schedule_config: Dict[str, Any] = {
     "auto_download_enabled": True,
-    "schedule_times": ["16:30"],
+    "schedule_times": ["15:45", "16:30", "17:30"],
     "downloads_folder": DEFAULT_DOWNLOADS_FOLDER
 }
 
@@ -116,13 +118,14 @@ async def scheduled_daily_fetch_job():
     logger.info("Executing scheduled sync for active trading day...")
     fetch_log = await run_market_sync(source="AUTOMATED", fetch_details=True)
 
-    # If sync succeeded, automatically generate and save Excel files to user's Downloads folder
+    # If sync succeeded, automatically update master workbooks and save Excel files to user's Downloads folder
     if fetch_log and fetch_log.status == "SUCCESS":
         try:
+            await master_excel_sync.append_daily_data(fetch_log.trade_date)
             saved = await auto_export_to_downloads(fetch_log.trade_date)
-            logger.info(f"Auto-download completed successfully: {len(saved)} files saved to {schedule_config['downloads_folder']}")
+            logger.info(f"Auto-download and Master sync completed successfully: {len(saved)} files saved to {schedule_config['downloads_folder']}")
         except Exception as e:
-            logger.error(f"Error during auto-export to downloads folder: {e}")
+            logger.error(f"Error during master sync / auto-export to downloads folder: {e}")
 
 def register_cron_jobs():
     """Registers APScheduler cron triggers for configured IST times."""
@@ -152,13 +155,87 @@ def register_cron_jobs():
             except ValueError:
                 pass
 
+_adaptive_task: Optional[asyncio.Task] = None
+_adaptive_status: Dict[str, Any] = {
+    "is_market_open": False,
+    "interval_seconds": 600,
+    "interval_label": "10 minutes (Market Closed)",
+    "market_status": "Post-Market / Closed",
+    "last_sync_time": None
+}
+
+def get_adaptive_sync_info() -> Dict[str, Any]:
+    """Returns current adaptive sync status and cadence info."""
+    return _adaptive_status
+
+async def adaptive_auto_sync_loop():
+    """
+    Continuous adaptive background worker:
+    - When market is OPEN (09:15 - 15:30 IST, Mon-Fri): syncs every 1 MINUTE.
+    - When market is CLOSED / Weekend / Holiday: syncs every 10 MINUTES for post-market filings.
+    """
+    global _adaptive_status
+    logger.info("Starting continuous adaptive market sync engine (1 min open / 10 min closed)...")
+    
+    # Short warm-up delay on boot
+    await asyncio.sleep(2.0)
+    
+    while True:
+        try:
+            fetcher = NSEFetcher()
+            is_open, status_text = fetcher.is_market_open()
+            
+            # Determine cadence based on real-time market status
+            if is_open:
+                interval = 60       # 1 minute during active market trading
+                source_label = "AUTO_1MIN_LIVE"
+                interval_label = "1 minute (Live Market)"
+            else:
+                interval = 600      # 10 minutes when market is closed
+                source_label = "AUTO_10MIN_POST"
+                interval_label = "10 minutes (Market Closed)"
+
+            _adaptive_status["is_market_open"] = is_open
+            _adaptive_status["interval_seconds"] = interval
+            _adaptive_status["interval_label"] = interval_label
+            _adaptive_status["market_status"] = status_text
+
+            logger.info(f"🔄 [Adaptive Sync] Status: {status_text} | Running {interval_label} sync...")
+            
+            # Execute full database update
+            fetch_log = await run_market_sync(source=source_label, fetch_details=True)
+            if fetch_log:
+                _adaptive_status["last_sync_time"] = datetime.now(ist_tz).strftime("%Y-%m-%d %H:%M:%S IST")
+                if fetch_log.status == "SUCCESS" and fetch_log.trade_date:
+                    try:
+                        await master_excel_sync.append_daily_data(fetch_log.trade_date)
+                    except Exception as me:
+                        logger.warning(f"Error appending to master workbooks in adaptive sync: {me}")
+                logger.info(f"✅ [Adaptive Sync] Cycle finished: {fetch_log.status} ({fetch_log.rows_fetched} records)")
+
+            # Sleep for the exact cadence
+            await asyncio.sleep(interval)
+
+        except asyncio.CancelledError:
+            logger.info("Adaptive sync loop cancelled.")
+            break
+        except Exception as e:
+            logger.error(f"❌ [Adaptive Sync] Error during cycle: {e}")
+            await asyncio.sleep(30)  # Retry in 30s on unexpected exception
+
 def start_scheduler():
-    """Initializes and starts the APScheduler with configured IST times."""
+    """Initializes and starts APScheduler cron jobs and continuous adaptive auto-sync loop."""
+    global _adaptive_task
     load_persisted_config()
     register_cron_jobs()
     if not scheduler.running:
         scheduler.start()
         logger.info("APScheduler started successfully.")
+    
+    # Start continuous adaptive sync background task if not already running
+    if _adaptive_task is None or _adaptive_task.done():
+        _adaptive_task = asyncio.create_task(adaptive_auto_sync_loop())
+        logger.info("Adaptive auto-sync background worker spawned.")
 
 def update_schedule_settings(enabled: bool, times: List[str], folder: Optional[str] = None):
     """Updates runtime schedule configuration, persists to disk, and updates cron jobs."""
@@ -172,6 +249,10 @@ def update_schedule_settings(enabled: bool, times: List[str], folder: Optional[s
     logger.info(f"Updated scheduler settings: enabled={enabled}, times={times}, folder={schedule_config['downloads_folder']}")
 
 def shutdown_scheduler():
+    global _adaptive_task
+    if _adaptive_task and not _adaptive_task.done():
+        _adaptive_task.cancel()
+        logger.info("Adaptive auto-sync background worker stopped.")
     if scheduler.running:
         scheduler.shutdown(wait=False)
         logger.info("APScheduler stopped.")

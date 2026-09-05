@@ -129,4 +129,34 @@ export interface FetchStatus {
   latest_trade_date?: string | null;
   total_records: number;
   next_scheduled_run?: string | null;
+  adaptive_sync?: {
+    is_market_open: boolean;
+    interval_seconds: number;
+    interval_label: string;
+    market_status: string;
+    last_sync_time?: string | null;
+  } | null;
+}
+
+export interface AuthUser {
+  username: string;
+  name: string;
+  role: "admin" | "analyst" | "tester" | string;
+  description?: string;
+}
+
+export interface LoginResponseData {
+  success: boolean;
+  message: string;
+  token: string;
+  token_type: string;
+  expires_in: number;
+  user: AuthUser;
+}
+
+export interface AccountPublicInfo {
+  username: string;
+  name: string;
+  role: string;
+  description: string;
 }

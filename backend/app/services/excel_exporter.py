@@ -846,9 +846,17 @@ async def generate_full_export_bundle(target_date: Optional[str] = None) -> Tupl
     await build_nifty50_workbook(target_date, str(nifty_file))
     await build_broad_market_workbook(target_date, str(indices_file))
 
+    # Synchronize and include Master Multi-Sheet Workbooks (all historical dates appended)
+    from app.services.excel_sync import master_excel_sync
+    idx_master_path, n50_master_path = await master_excel_sync.sync_all_masters()
+
     with zipfile.ZipFile(zip_file, "w", zipfile.ZIP_DEFLATED) as z:
         z.write(nifty_file, arcname=nifty_file.name)
         z.write(indices_file, arcname=indices_file.name)
+        if os.path.exists(n50_master_path):
+            z.write(n50_master_path, arcname="nifty50_daily_master.xlsx")
+        if os.path.exists(idx_master_path):
+            z.write(idx_master_path, arcname="broad_market_indices_master.xlsx")
 
-    files = [str(nifty_file), str(indices_file)]
+    files = [str(nifty_file), str(indices_file), str(n50_master_path), str(idx_master_path)]
     return str(zip_file), files, target_date

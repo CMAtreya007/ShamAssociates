@@ -437,3 +437,48 @@ class HistoricalBackfillEngine:
 
         logger.info(f"Historical Backfill Completed for {target_date_str}: Status={status_str}, Rows={total_rows} in {duration}s")
         return log_entry
+
+async def auto_detect_and_backfill_missing_days(days_back: int = 14) -> List[str]:
+    """
+    Scans the last `days_back` calendar days for any active trading day (Mon-Fri, non-holiday)
+    that is missing from local SQLite (e.g. if the PC was powered off or the app wasn't running).
+    Automatically downloads the official NSE archive Bhavcopy & closing files, ingests all records,
+    and updates the master workbooks.
+    """
+    engine = HistoricalBackfillEngine()
+    fetcher = NSEFetcher()
+    today = date.today()
+    backfilled_dates = []
+
+    async with AsyncSessionLocal() as db:
+        q_dates = await db.execute(select(Nifty50Daily.date).distinct())
+        existing_dates = set(q_dates.scalars().all())
+
+    for offset in range(1, days_back + 1):
+        target_dt = today - timedelta(days=offset)
+        target_str = target_dt.strftime("%Y-%m-%d")
+
+        # Skip if already in database
+        if target_str in existing_dates:
+            continue
+
+        # Skip if weekend or official trading holiday
+        is_holiday, reason = fetcher.is_market_holiday_or_weekend(target_dt)
+        if is_holiday:
+            continue
+
+        logger.info(f"🔍 [Gap Detector] Detected missing trading day: {target_str}. Auto-backfilling from NSE Archives...")
+        try:
+            log = await engine.execute_backfill(target_str)
+            if log and log.status == "SUCCESS":
+                backfilled_dates.append(target_str)
+                logger.info(f"✅ [Gap Detector] Successfully auto-backfilled {target_str} ({log.rows_fetched} records)")
+        except Exception as e:
+            logger.warning(f"Could not auto-backfill {target_str}: {e}")
+
+    if backfilled_dates:
+        from app.services.excel_sync import master_excel_sync
+        await master_excel_sync.sync_all_masters()
+        logger.info(f"Master Workbooks synchronized with {len(backfilled_dates)} newly recovered historical dates.")
+
+    return backfilled_dates
