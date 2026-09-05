@@ -117,7 +117,7 @@ async def build_nifty50_workbook(target_date: str, output_path: str) -> str:
         )
         details_map = {d.symbol: d for d in q_det.scalars().all()}
 
-        # Load corporate actions for Nifty 50 symbols
+        # Load corporate actions for Nifty 50 symbols from local database
         symbols_list = [s.symbol for s in stocks]
         q_ca = await db.execute(
             select(CorporateAction).where(CorporateAction.symbol.in_(symbols_list)).order_by(asc(CorporateAction.priority_level), desc(CorporateAction.ex_date))
@@ -126,91 +126,6 @@ async def build_nifty50_workbook(target_date: str, output_path: str) -> str:
         actions_by_symbol: Dict[str, List[CorporateAction]] = {}
         for a in all_actions:
             actions_by_symbol.setdefault(a.symbol, []).append(a)
-
-        # On-demand fetch for symbols that don't have actions in DB yet
-        missing_ca_symbols = [s for s in symbols_list if s not in actions_by_symbol]
-        if missing_ca_symbols:
-            fetcher = NSEFetcher()
-            sem_exp = asyncio.Semaphore(5)
-
-            async def fetch_missing_ca(s_sym: str):
-                async with sem_exp:
-                    try:
-                        ca_res = await asyncio.to_thread(fetcher.fetch_stock_corporate_actions, s_sym)
-                        bm_res = await asyncio.to_thread(fetcher.fetch_stock_event_calendar, s_sym)
-                        seen_keys = set()
-                        async with AsyncSessionLocal() as sub_db:
-                            for item in (ca_res or []):
-                                subj = item.get("subject")
-                                ex_d = item.get("exDate") or item.get("caBroadcastDate")
-                                if subj and (s_sym, subj, ex_d) not in seen_keys:
-                                    seen_keys.add((s_sym, subj, ex_d))
-                                    act_type, priority = classify_corporate_action(subj)
-                                    q_chk = await sub_db.execute(
-                                        select(CorporateAction).where(
-                                            CorporateAction.symbol == s_sym,
-                                            CorporateAction.subject == subj,
-                                            CorporateAction.ex_date == ex_d
-                                        )
-                                    )
-                                    existing = q_chk.scalars().first()
-                                    if not existing:
-                                        new_act = CorporateAction(
-                                            symbol=s_sym,
-                                            company_name=item.get("comp"),
-                                            series=item.get("series", "EQ"),
-                                            subject=subj,
-                                            action_type=act_type,
-                                            ex_date=ex_d,
-                                            record_date=item.get("recDate"),
-                                            priority_level=priority,
-                                            raw_data=item
-                                        )
-                                        sub_db.add(new_act)
-                                        actions_by_symbol.setdefault(s_sym, []).append(new_act)
-                                    else:
-                                        actions_by_symbol.setdefault(s_sym, []).append(existing)
-
-                            for ev in (bm_res or []):
-                                purpose = ev.get("purpose") or "Board Meeting"
-                                ev_date = ev.get("date")
-                                if purpose and (s_sym, purpose, ev_date) not in seen_keys:
-                                    seen_keys.add((s_sym, purpose, ev_date))
-                                    act_type, priority = classify_corporate_action(purpose, ev.get("bm_desc") or "")
-                                    q_chk_bm = await sub_db.execute(
-                                        select(CorporateAction).where(
-                                            CorporateAction.symbol == s_sym,
-                                            CorporateAction.subject == purpose,
-                                            CorporateAction.ex_date == ev_date
-                                        )
-                                    )
-                                    existing_bm = q_chk_bm.scalars().first()
-                                    if not existing_bm:
-                                        new_bm = CorporateAction(
-                                            symbol=s_sym,
-                                            company_name=ev.get("company"),
-                                            series="EQ",
-                                            subject=purpose,
-                                            action_type=act_type,
-                                            ex_date=ev_date,
-                                            details=ev.get("bm_desc"),
-                                            priority_level=priority,
-                                            raw_data=ev
-                                        )
-                                        sub_db.add(new_bm)
-                                        actions_by_symbol.setdefault(s_sym, []).append(new_bm)
-                                    else:
-                                        actions_by_symbol.setdefault(s_sym, []).append(existing_bm)
-
-                            try:
-                                await sub_db.commit()
-                            except Exception:
-                                await sub_db.rollback()
-                    except Exception as err:
-                        logger.warning(f"Failed on-demand CA fetch in export for {s_sym}: {err}")
-
-            exp_tasks = [fetch_missing_ca(s) for s in missing_ca_symbols]
-            await asyncio.gather(*exp_tasks)
 
     # Exhaustive Overview Headers with Corporate Actions columns
     headers = [
@@ -843,16 +758,23 @@ async def generate_full_export_bundle(target_date: Optional[str] = None) -> Tupl
     indices_file = export_dir / f"broad_market_indices_{target_date}.xlsx"
     zip_file = export_dir / f"NSE_Market_Data_Export_{target_date}.zip"
 
-    await build_nifty50_workbook(target_date, str(nifty_file))
-    await build_broad_market_workbook(target_date, str(indices_file))
-
-    # Synchronize and include Master Multi-Sheet Workbooks (all historical dates appended)
+    # Parallel workbook generation for maximum throughput
     from app.services.excel_sync import master_excel_sync
-    idx_master_path, n50_master_path = await master_excel_sync.sync_all_masters()
+    
+    await asyncio.gather(
+        build_nifty50_workbook(target_date, str(nifty_file)),
+        build_broad_market_workbook(target_date, str(indices_file)),
+        master_excel_sync.sync_all_masters()
+    )
+
+    idx_master_path = master_excel_sync.get_master_indices_path()
+    n50_master_path = master_excel_sync.get_master_nifty50_path()
 
     with zipfile.ZipFile(zip_file, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(nifty_file, arcname=nifty_file.name)
-        z.write(indices_file, arcname=indices_file.name)
+        if os.path.exists(nifty_file):
+            z.write(nifty_file, arcname=nifty_file.name)
+        if os.path.exists(indices_file):
+            z.write(indices_file, arcname=indices_file.name)
         if os.path.exists(n50_master_path):
             z.write(n50_master_path, arcname="nifty50_daily_master.xlsx")
         if os.path.exists(idx_master_path):

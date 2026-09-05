@@ -57,9 +57,10 @@ async def resolve_last_synced_nse_trade_date(db: AsyncSession, requested_date: O
     # Fallback to the latest available date in database if all were flagged
     return all_dates[0] if all_dates else None
 
-@router.post("/full")
+@router.api_route("/full", methods=["GET", "POST"])
 async def export_full_dataset(
     date: Optional[str] = Query(None, description="Trade date to export in YYYY-MM-DD format"),
+    token: Optional[str] = Query(None, description="Optional bearer token for direct links"),
     db: AsyncSession = Depends(get_db)
 ):
     """Generates both styled Excel workbooks (Nifty 50 + Broad Market Indices) and returns ZIP file download.

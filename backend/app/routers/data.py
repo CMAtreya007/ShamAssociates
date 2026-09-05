@@ -373,38 +373,44 @@ async def get_market_catalysts(
     limit: Optional[int] = Query(None, ge=1, description="Optional limit (omit for unlimited)"),
     db: AsyncSession = Depends(get_db)
 ):
-    """Returns chronologically and priority-sorted upcoming/recent Corporate Catalysts & Actions with no artificial limit."""
-    query = select(CorporateAction)
+    """Returns chronologically and priority-sorted upcoming/recent Corporate Catalysts & Actions."""
+    try:
+        query = select(CorporateAction)
 
-    if scope == "nifty50":
-        q_n50 = await db.execute(select(Nifty50Daily.symbol).distinct())
-        n50_symbols = q_n50.scalars().all()
-        if n50_symbols:
-            query = query.where(CorporateAction.symbol.in_(n50_symbols))
+        if scope == "nifty50":
+            q_n50 = await db.execute(select(Nifty50Daily.symbol).distinct())
+            n50_symbols = q_n50.scalars().all()
+            if n50_symbols:
+                query = query.where(CorporateAction.symbol.in_(n50_symbols))
 
-    if action_type:
-        query = query.where(CorporateAction.action_type == action_type.upper().strip())
+        if action_type:
+            query = query.where(CorporateAction.action_type == action_type.upper().strip())
 
-    q = await db.execute(query)
-    actions = q.scalars().all()
-    # Sort chronologically by true parsed date descending (latest/upcoming first)
-    sorted_actions = sorted(actions, key=lambda a: parse_nse_date(a.ex_date), reverse=True)
-    if limit and limit > 0:
-        return [CorporateActionSchema.model_validate(a) for a in sorted_actions[:limit]]
-    return [CorporateActionSchema.model_validate(a) for a in sorted_actions]
+        max_limit = limit if (limit and limit > 0) else 300
+        query = query.order_by(asc(CorporateAction.priority_level), desc(CorporateAction.ex_date)).limit(max_limit)
+
+        q = await db.execute(query)
+        actions = q.scalars().all()
+        # Sort chronologically by true parsed date descending (latest/upcoming first)
+        sorted_actions = sorted(actions, key=lambda a: parse_nse_date(a.ex_date), reverse=True)
+        return [CorporateActionSchema.model_validate(a) for a in sorted_actions]
+    except Exception as err:
+        return []
 
 @router.get("/announcements", response_model=List[CorporateAnnouncementSchema])
 async def get_corporate_announcements(
     limit: Optional[int] = Query(None, ge=1, description="Optional limit (omit for unlimited)"),
     db: AsyncSession = Depends(get_db)
 ):
-    """Returns recent corporate regulatory announcements and filings with no artificial limit."""
-    query = select(CorporateAnnouncement).order_by(desc(CorporateAnnouncement.broadcast_date))
-    if limit and limit > 0:
-        query = query.limit(limit)
-    q = await db.execute(query)
-    announcements = q.scalars().all()
-    return [CorporateAnnouncementSchema.model_validate(a) for a in announcements]
+    """Returns recent corporate regulatory announcements and filings."""
+    try:
+        max_limit = limit if (limit and limit > 0) else 100
+        query = select(CorporateAnnouncement).order_by(desc(CorporateAnnouncement.broadcast_date)).limit(max_limit)
+        q = await db.execute(query)
+        announcements = q.scalars().all()
+        return [CorporateAnnouncementSchema.model_validate(a) for a in announcements]
+    except Exception as err:
+        return []
 
 @router.get("/indices/{category}", response_model=List[IndexDailySchema])
 async def get_indices_by_category(

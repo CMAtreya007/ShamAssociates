@@ -118,20 +118,30 @@ class DatabaseManager:
 
     @staticmethod
     async def upsert_indices_records(records: List[Dict[str, Any]]) -> int:
-        """Upserts a list of index records into the database with deduplication on (date, index_symbol)."""
+        """Upserts a list of index records with high-performance batch prefetch and deduplication."""
         if not records:
             return 0
         inserted_or_updated = 0
+        dates = list({r.get("date") for r in records if r.get("date")})
+        if not dates:
+            return 0
+
         async with AsyncSessionLocal() as db:
+            q_existing = await db.execute(
+                select(IndexDaily).where(IndexDaily.date.in_(dates))
+            )
+            existing_map = {
+                (r.date, (r.index_symbol or r.index_name or "").upper().strip()): r
+                for r in q_existing.scalars().all()
+            }
+
             for item in records:
                 d = item.get("date")
-                sym = item.get("index_symbol") or item.get("index_name")
+                sym = (item.get("index_symbol") or item.get("index_name") or "").upper().strip()
                 if not d or not sym:
                     continue
-                q = await db.execute(
-                    select(IndexDaily).where(and_(IndexDaily.date == d, IndexDaily.index_symbol == sym))
-                )
-                existing = q.scalars().first()
+                
+                existing = existing_map.get((d, sym))
                 if existing:
                     for k, v in item.items():
                         if hasattr(existing, k) and v is not None:
@@ -139,26 +149,38 @@ class DatabaseManager:
                 else:
                     new_rec = IndexDaily(**{k: v for k, v in item.items() if hasattr(IndexDaily, k)})
                     db.add(new_rec)
+                    existing_map[(d, sym)] = new_rec
                 inserted_or_updated += 1
+
             await db.commit()
         return inserted_or_updated
 
     @staticmethod
     async def upsert_nifty50_records(records: List[Dict[str, Any]]) -> int:
-        """Upserts a list of Nifty 50 constituent records with deduplication on (date, symbol)."""
+        """Upserts a list of Nifty 50 records with high-performance batch prefetch and deduplication."""
         if not records:
             return 0
         count = 0
+        dates = list({r.get("date") for r in records if r.get("date")})
+        if not dates:
+            return 0
+
         async with AsyncSessionLocal() as db:
+            q_existing = await db.execute(
+                select(Nifty50Daily).where(Nifty50Daily.date.in_(dates))
+            )
+            existing_map = {
+                (r.date, (r.symbol or "").upper().strip()): r
+                for r in q_existing.scalars().all()
+            }
+
             for item in records:
                 d = item.get("date")
-                sym = item.get("symbol")
+                sym = (item.get("symbol") or "").upper().strip()
                 if not d or not sym:
                     continue
-                q = await db.execute(
-                    select(Nifty50Daily).where(and_(Nifty50Daily.date == d, Nifty50Daily.symbol == sym))
-                )
-                existing = q.scalars().first()
+                
+                existing = existing_map.get((d, sym))
                 if existing:
                     for k, v in item.items():
                         if hasattr(existing, k) and v is not None:
@@ -166,6 +188,8 @@ class DatabaseManager:
                 else:
                     new_rec = Nifty50Daily(**{k: v for k, v in item.items() if hasattr(Nifty50Daily, k)})
                     db.add(new_rec)
+                    existing_map[(d, sym)] = new_rec
                 count += 1
+
             await db.commit()
         return count

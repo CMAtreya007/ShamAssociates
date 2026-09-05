@@ -1,12 +1,14 @@
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
+from sqlalchemy import text
 from app.config import settings
 
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
-    future=True
+    future=True,
+    pool_pre_ping=True
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -27,12 +29,32 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 async def init_db() -> None:
+    # Ensure all models are loaded into Base metadata
+    import app.models  # noqa: F401
+
     async with engine.begin() as conn:
+        # 1. Enable SQLite WAL and performance optimizations
+        def configure_sqlite(sync_conn):
+            cursor = sync_conn.connection.cursor()
+            try:
+                cursor.execute("PRAGMA journal_mode=WAL;")
+                cursor.execute("PRAGMA synchronous=NORMAL;")
+                cursor.execute("PRAGMA cache_size=-64000;")  # 64MB memory cache
+                cursor.execute("PRAGMA temp_store=MEMORY;")
+                cursor.execute("PRAGMA busy_timeout=10000;") # 10s wait before busy
+            except Exception:
+                pass
+        
+        await conn.run_sync(configure_sqlite)
+
+        # 2. Create all tables defined in models
         await conn.run_sync(Base.metadata.create_all)
         
-        # Automatic SQLite column migration for stock_detail_daily
+        # 3. Automatic SQLite column migrations
         def migrate_columns(sync_conn):
             cursor = sync_conn.connection.cursor()
+            
+            # Migration for stock_detail_daily
             cursor.execute("PRAGMA table_info(stock_detail_daily)")
             existing_cols = {row[1] for row in cursor.fetchall()}
             
@@ -56,7 +78,7 @@ async def init_db() -> None:
                     except Exception:
                         pass
         
-            # Automatic SQLite column migration for index_daily
+            # Migration for index_daily
             cursor.execute("PRAGMA table_info(index_daily)")
             existing_idx_cols = {row[1] for row in cursor.fetchall()}
             idx_new_cols = [
@@ -72,7 +94,7 @@ async def init_db() -> None:
                     except Exception:
                         pass
         
-            # Automatic SQLite column migration for fetch_log
+            # Migration for fetch_log
             cursor.execute("PRAGMA table_info(fetch_log)")
             existing_log_cols = {row[1] for row in cursor.fetchall()}
             if "corporate_actions_count" not in existing_log_cols:
