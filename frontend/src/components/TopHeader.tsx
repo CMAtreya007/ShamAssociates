@@ -112,18 +112,32 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       </div>
 
       {/* 2. Center: Global Search Trigger (⌘K) */}
-      <div className="flex-1 max-w-md hidden md:block">
+      <div className="flex-1 max-w-xs md:max-w-sm lg:max-w-md mx-2 sm:mx-4 hidden md:block">
         <button
+          type="button"
           onClick={onOpenCommand}
-          className="w-full flex items-center justify-between px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-300 hover:bg-slate-100/70 text-xs text-slate-500 transition shadow-inner-sm group"
+          title="Search all stocks, indices, and commands (⌘K or Ctrl+K)"
+          className="w-full flex items-center justify-between px-3.5 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 text-xs text-slate-500 transition shadow-inner-sm group cursor-pointer active:scale-[0.99]"
         >
-          <div className="flex items-center gap-2.5">
-            <Search className="w-4 h-4 text-slate-400 group-hover:text-slate-600 transition" />
-            <span className="text-slate-500 font-medium">Search stocks, indices, commands...</span>
+          <div className="flex items-center gap-2.5 truncate">
+            <Search className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition flex-shrink-0" />
+            <span className="text-slate-500 font-medium truncate">Search stocks, indices, commands...</span>
           </div>
-          <kbd className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-md bg-white text-slate-500 border border-slate-200 shadow-sm">
+          <kbd className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-white text-slate-500 border border-slate-200 shadow-2xs flex-shrink-0 ml-2">
             ⌘K
           </kbd>
+        </button>
+      </div>
+
+      {/* Mobile Search Icon Button */}
+      <div className="block md:hidden">
+        <button
+          type="button"
+          onClick={onOpenCommand}
+          title="Search (⌘K)"
+          className="p-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 transition cursor-pointer"
+        >
+          <Search className="w-4 h-4 text-slate-500" />
         </button>
       </div>
 

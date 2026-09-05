@@ -6,59 +6,19 @@ import {
   EyeOff, 
   ShieldCheck, 
   TrendingUp, 
-  Activity, 
   ArrowRight, 
   Loader2, 
-  AlertCircle,
-  KeyRound,
-  CheckCircle2,
-  Sparkles
+  AlertCircle
 } from "lucide-react";
-import { AuthUser, LoginResponseData } from "../types";
+import { LoginResponseData } from "../types";
 
 interface LoginViewProps {
   onLogin: (username: string, pass: string) => Promise<LoginResponseData>;
 }
 
-interface TestAccount {
-  id: string;
-  name: string;
-  role: string;
-  pass: string;
-  badgeColor: string;
-  desc: string;
-}
-
-const TEST_ACCOUNTS: TestAccount[] = [
-  {
-    id: "admin",
-    name: "Administrator",
-    role: "Admin",
-    pass: "Shankar@001",
-    badgeColor: "bg-purple-100 text-purple-700 border-purple-200",
-    desc: "Full system config, sync, backfills & export"
-  },
-  {
-    id: "client_analyst",
-    name: "Financial Analyst",
-    role: "Analyst",
-    pass: "Shankar@002",
-    badgeColor: "bg-blue-100 text-blue-700 border-blue-200",
-    desc: "Screener, corporate catalysts, sectoral analytics"
-  },
-  {
-    id: "client_tester",
-    name: "Client QA Tester",
-    role: "Tester",
-    pass: "Shankar@003",
-    badgeColor: "bg-emerald-100 text-emerald-700 border-emerald-200",
-    desc: "End-to-end verification, live tick validation"
-  }
-];
-
 export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("Shankar@001");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,12 +42,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
     }
   };
 
-  const handleSelectAccount = (acc: TestAccount) => {
-    setUsername(acc.id);
-    setPassword(acc.pass);
-    setError(null);
-  };
-
   return (
     <div className="min-h-screen w-screen flex flex-col items-center justify-center bg-slate-950 text-slate-100 relative overflow-hidden font-sans select-none px-4">
       
@@ -108,12 +62,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
             </span>
             <span className="font-semibold text-white tracking-wide">NSE India Market Terminal</span>
             <span className="text-slate-600">|</span>
-            <span className="text-slate-400">Client Testing Portal</span>
+            <span className="text-slate-400">Client Access Portal</span>
           </div>
         </div>
 
         {/* Form Card */}
-        <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-7 shadow-2xl backdrop-blur-xl transition-all">
+        <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-8 shadow-2xl backdrop-blur-xl transition-all">
           
           {/* Header */}
           <div className="text-center mb-6">
@@ -122,7 +76,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
             </div>
             <h1 className="text-xl font-bold text-white tracking-tight">Access Control Gate</h1>
             <p className="text-xs text-slate-400 mt-1">
-              Authorized credentials required for institutional market feed & analytics.
+              Authorized credentials required to access institutional market feed & analytics.
             </p>
           </div>
 
@@ -150,7 +104,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="e.g. admin, client_analyst, client_tester"
+                  placeholder="Enter your User ID"
                   autoComplete="username"
                   className="w-full pl-10 pr-3.5 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition font-mono"
                   required
@@ -181,7 +135,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-500 hover:text-slate-300 transition"
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-500 hover:text-slate-300 transition cursor-pointer"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -192,7 +146,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full mt-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-[#00B386] hover:from-emerald-600 hover:to-[#009e75] text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full mt-3 py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-[#00B386] hover:from-emerald-600 hover:to-[#009e75] text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {isLoading ? (
                 <>
@@ -208,54 +162,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
             </button>
           </form>
 
-          {/* Quick Select Client Test Accounts */}
-          <div className="mt-6 pt-5 border-t border-slate-800/80">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2.5">
-              <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Quick Test Accounts</span>
-            </div>
-
-            <div className="space-y-2">
-              {TEST_ACCOUNTS.map((acc) => {
-                const isSelected = username === acc.id;
-                return (
-                  <button
-                    key={acc.id}
-                    type="button"
-                    onClick={() => handleSelectAccount(acc)}
-                    className={`w-full text-left p-2.5 rounded-xl border transition flex items-center justify-between ${
-                      isSelected
-                        ? "bg-slate-800/90 border-emerald-500/60 shadow-xs"
-                        : "bg-slate-950/40 border-slate-800/60 hover:bg-slate-800/50 hover:border-slate-700"
-                    }`}
-                  >
-                    <div className="min-w-0 pr-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-slate-200 font-mono">{acc.id}</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider border ${acc.badgeColor}`}>
-                          {acc.role}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-400 truncate mt-0.5">
-                        {acc.desc}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-1 rounded border border-slate-800 flex-shrink-0">
-                      Auto-fill
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
         </div>
 
         {/* Security / Encryption Guarantee Footer */}
-        <div className="mt-5 flex items-center justify-center gap-2 text-[11px] text-slate-500">
+        <div className="mt-6 flex items-center justify-center gap-2 text-[11px] text-slate-500">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-          <span>HMAC-SHA256 Encrypted Session • Isolated Testing Environment</span>
+          <span>HMAC-SHA256 Encrypted Session • Authorized Access Only</span>
         </div>
 
       </div>
