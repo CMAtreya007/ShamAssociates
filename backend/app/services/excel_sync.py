@@ -664,6 +664,13 @@ class MasterExcelSyncManager:
         # Update and rebuild Master files
         await self.sync_all_masters()
 
+        try:
+            from app.services.excel_exporter import warmup_export_cache
+            import asyncio
+            asyncio.create_task(warmup_export_cache())
+        except Exception:
+            pass
+
         logger.info(f"Ingestion complete: {indices_count} index records, {nifty50_count} stock records imported.")
         return {
             "success": True,

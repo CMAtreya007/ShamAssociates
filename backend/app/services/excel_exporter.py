@@ -711,9 +711,10 @@ async def build_broad_market_workbook(target_date: str, output_path: str) -> str
     wb.save(output_path)
     return output_path
 
-async def generate_full_export_bundle(target_date: Optional[str] = None) -> Tuple[str, List[str], str]:
+async def generate_full_export_bundle(target_date: Optional[str] = None, force_rebuild: bool = False) -> Tuple[str, List[str], str]:
     """Builds both workbooks in a dated directory and packages them into a single ZIP.
     If executed on a weekend or government holiday, falls back to the latest actual synced market trade date from NSE.
+    Includes high-performance disk caching for sub-second instant downloads.
     """
     fetcher = NSEFetcher()
     async with AsyncSessionLocal() as db:
@@ -758,17 +759,21 @@ async def generate_full_export_bundle(target_date: Optional[str] = None) -> Tupl
     indices_file = export_dir / f"broad_market_indices_{target_date}.xlsx"
     zip_file = export_dir / f"NSE_Market_Data_Export_{target_date}.zip"
 
-    # Parallel workbook generation for maximum throughput
     from app.services.excel_sync import master_excel_sync
-    
+    idx_master_path = master_excel_sync.get_master_indices_path()
+    n50_master_path = master_excel_sync.get_master_nifty50_path()
+
+    # Instant Cache Check: If pre-generated ZIP exists and is valid, return immediately in < 10ms!
+    if not force_rebuild and zip_file.exists() and zip_file.stat().st_size > 10000:
+        files = [str(nifty_file), str(indices_file), str(n50_master_path), str(idx_master_path)]
+        return str(zip_file), files, target_date
+
+    # Parallel workbook generation for maximum throughput
     await asyncio.gather(
         build_nifty50_workbook(target_date, str(nifty_file)),
         build_broad_market_workbook(target_date, str(indices_file)),
         master_excel_sync.sync_all_masters()
     )
-
-    idx_master_path = master_excel_sync.get_master_indices_path()
-    n50_master_path = master_excel_sync.get_master_nifty50_path()
 
     with zipfile.ZipFile(zip_file, "w", zipfile.ZIP_DEFLATED) as z:
         if os.path.exists(nifty_file):
@@ -782,3 +787,11 @@ async def generate_full_export_bundle(target_date: Optional[str] = None) -> Tupl
 
     files = [str(nifty_file), str(indices_file), str(n50_master_path), str(idx_master_path)]
     return str(zip_file), files, target_date
+
+async def warmup_export_cache(target_date: Optional[str] = None):
+    """Pre-generates and warms up the export zip archive in the background."""
+    try:
+        await generate_full_export_bundle(target_date, force_rebuild=True)
+        logger.info(f"Export cache pre-warmed successfully for {target_date or 'latest'}")
+    except Exception as e:
+        logger.warning(f"Export cache warmup failed: {e}")

@@ -436,6 +436,14 @@ class HistoricalBackfillEngine:
             await db.refresh(log_entry)
 
         logger.info(f"Historical Backfill Completed for {target_date_str}: Status={status_str}, Rows={total_rows} in {duration}s")
+        
+        if status_str in ("SUCCESS", "PARTIAL"):
+            try:
+                from app.services.excel_exporter import warmup_export_cache
+                asyncio.create_task(warmup_export_cache(target_date_str))
+            except Exception:
+                pass
+
         return log_entry
 
 async def auto_detect_and_backfill_missing_days(days_back: int = 14) -> List[str]:
