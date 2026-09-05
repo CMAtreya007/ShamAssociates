@@ -6,12 +6,15 @@ frontend/node_modules/
 
 # Python
 __pycache__/
+**/__pycache__/**
 *.py[cod]
 *$py.class
 backend/.venv/
 backend/build/
 backend/dist/
 backend/data/*.db-journal
+backend/data/*.db-wal
+backend/data/*.db-shm
 .pytest_cache/
 
 # Electron build artifacts

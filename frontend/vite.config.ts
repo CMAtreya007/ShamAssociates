@@ -16,8 +16,18 @@ export default defineConfig({
   },
   envPrefix: ["VITE_", "TAURI_"],
   build: {
-    target: process.env.TAURI_PLATFORM == "windows" ? "chrome105" : "safari13",
-    minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
-    sourcemap: !!process.env.TAURI_DEBUG,
+    target: "esnext",
+    minify: "esbuild",
+    cssCodeSplit: true,
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-framework": ["react", "react-dom"],
+          "vendor-icons": ["lucide-react"],
+          "vendor-ui": ["sonner", "clsx", "tailwind-merge"],
+        },
+      },
+    },
   },
 });

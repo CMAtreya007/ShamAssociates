@@ -1,16 +1,9 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, Suspense, lazy } from "react";
 import { Toaster, toast } from "sonner";
 import { TopHeader } from "./components/TopHeader";
 import { LeftSidebar, NavView } from "./components/LeftSidebar";
 import { MarketPulse } from "./components/MarketPulse";
 import { MarketDataGrid } from "./components/MarketDataGrid";
-import { IndicesView } from "./components/IndicesView";
-import { CatalystFeed } from "./components/CatalystFeed";
-import { StockDetailDrawer } from "./components/StockDetailDrawer";
-import { CommandPalette } from "./components/CommandPalette";
-import { SettingsModal } from "./components/SettingsModal";
-import { FetchLogsModal } from "./components/FetchLogsModal";
-import { ExcelUploadModal } from "./components/ExcelUploadModal";
 import { LoginView } from "./components/LoginView";
 import { useAuth } from "./hooks/useAuth";
 import { useExportMarketData } from "./hooks/useExportMarketData";
@@ -25,6 +18,15 @@ import {
   triggerBackfill 
 } from "./services/api";
 import { Loader2 } from "lucide-react";
+
+// Code-split heavy secondary views and modal dialogs for instant sub-second initial load
+const IndicesView = lazy(() => import("./components/IndicesView").then(m => ({ default: m.IndicesView })));
+const CatalystFeed = lazy(() => import("./components/CatalystFeed").then(m => ({ default: m.CatalystFeed })));
+const StockDetailDrawer = lazy(() => import("./components/StockDetailDrawer").then(m => ({ default: m.StockDetailDrawer })));
+const CommandPalette = lazy(() => import("./components/CommandPalette").then(m => ({ default: m.CommandPalette })));
+const SettingsModal = lazy(() => import("./components/SettingsModal").then(m => ({ default: m.SettingsModal })));
+const FetchLogsModal = lazy(() => import("./components/FetchLogsModal").then(m => ({ default: m.FetchLogsModal })));
+const ExcelUploadModal = lazy(() => import("./components/ExcelUploadModal").then(m => ({ default: m.ExcelUploadModal })));
 
 export function App() {
   const { user, isAuthenticated, isLoading: isAuthLoading, login, logout } = useAuth();
@@ -288,14 +290,28 @@ export function App() {
                 priceFlashMap={priceFlashMap}
               />
             ) : activeView === "catalysts" ? (
-              <CatalystFeed
-                onSelectStock={(sym) => setSelectedStockSymbol(sym)}
-              />
+              <Suspense fallback={
+                <div className="p-12 flex flex-col items-center justify-center gap-3 bg-white rounded-2xl border border-slate-200/80 shadow-card">
+                  <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
+                  <span className="text-xs text-slate-500 font-medium">Loading Corporate Catalysts...</span>
+                </div>
+              }>
+                <CatalystFeed
+                  onSelectStock={(sym) => setSelectedStockSymbol(sym)}
+                />
+              </Suspense>
             ) : (
-              <IndicesView
-                category={activeView}
-                selectedDate={selectedDate}
-              />
+              <Suspense fallback={
+                <div className="p-12 flex flex-col items-center justify-center gap-3 bg-white rounded-2xl border border-slate-200/80 shadow-card">
+                  <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
+                  <span className="text-xs text-slate-500 font-medium">Loading Index Market Overview...</span>
+                </div>
+              }>
+                <IndicesView
+                  category={activeView}
+                  selectedDate={selectedDate}
+                />
+              </Suspense>
             )}
 
           </div>
@@ -304,45 +320,63 @@ export function App() {
       </div>
 
       {/* ⌘K Command Palette Modal */}
-      <CommandPalette
-        open={isCommandOpen}
-        onOpenChange={setIsCommandOpen}
-        stocks={stocks}
-        onSelectStock={(sym) => setSelectedStockSymbol(sym)}
-        onExport={() => downloadAll(selectedDate)}
-        onSync={handleManualSync}
-      />
+      <Suspense fallback={null}>
+        {isCommandOpen && (
+          <CommandPalette
+            open={isCommandOpen}
+            onOpenChange={setIsCommandOpen}
+            stocks={stocks}
+            onSelectStock={(sym) => setSelectedStockSymbol(sym)}
+            onExport={() => downloadAll(selectedDate)}
+            onSync={handleManualSync}
+          />
+        )}
+      </Suspense>
 
       {/* Right-Side Screener-Style Fundamental Drawer */}
-      {selectedStockSymbol && (
-        <StockDetailDrawer
-          symbol={selectedStockSymbol}
-          selectedDate={selectedDate}
-          onClose={() => setSelectedStockSymbol(null)}
-        />
-      )}
+      <Suspense fallback={null}>
+        {selectedStockSymbol && (
+          <StockDetailDrawer
+            symbol={selectedStockSymbol}
+            selectedDate={selectedDate}
+            onClose={() => setSelectedStockSymbol(null)}
+          />
+        )}
+      </Suspense>
 
       {/* Bulk Excel Ingestion & Auto-Classification Modal */}
-      <ExcelUploadModal
-        isOpen={isUploadOpen}
-        onClose={() => setIsUploadOpen(false)}
-        onSuccess={() => {
-          loadStatusAndDates();
-          toast.success("Excel files imported and Master Workbooks updated!");
-        }}
-      />
+      <Suspense fallback={null}>
+        {isUploadOpen && (
+          <ExcelUploadModal
+            isOpen={isUploadOpen}
+            onClose={() => setIsUploadOpen(false)}
+            onSuccess={() => {
+              loadStatusAndDates();
+              toast.success("Excel files imported and Master Workbooks updated!");
+            }}
+          />
+        )}
+      </Suspense>
 
       {/* Audit Logs Modal */}
-      <FetchLogsModal
-        isOpen={isLogsOpen}
-        onClose={() => setIsLogsOpen(false)}
-      />
+      <Suspense fallback={null}>
+        {isLogsOpen && (
+          <FetchLogsModal
+            isOpen={isLogsOpen}
+            onClose={() => setIsLogsOpen(false)}
+          />
+        )}
+      </Suspense>
 
       {/* Settings Modal */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-      />
+      <Suspense fallback={null}>
+        {isSettingsOpen && (
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+          />
+        )}
+      </Suspense>
 
     </div>
   );

@@ -853,9 +853,11 @@ async def run_market_sync(source: str = "MANUAL", fetch_details: bool = True, ta
 
             logger.info(f"Sync complete ({status}): {total_rows} total rows (including {corp_actions_saved} catalysts) in {duration}s")
             
-            # Immediately pre-warm the export ZIP cache in background for sub-second client downloads
+            # Immediately pre-warm the export ZIP cache and clear RAM cache for fresh instant queries
             if status in ("SUCCESS", "PARTIAL"):
                 try:
+                    from app.services.cache_manager import clear_all_data_caches
+                    clear_all_data_caches()
                     from app.services.excel_exporter import warmup_export_cache
                     asyncio.create_task(warmup_export_cache(today_str))
                 except Exception:

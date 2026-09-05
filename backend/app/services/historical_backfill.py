@@ -439,6 +439,8 @@ class HistoricalBackfillEngine:
         
         if status_str in ("SUCCESS", "PARTIAL"):
             try:
+                from app.services.cache_manager import clear_all_data_caches
+                clear_all_data_caches()
                 from app.services.excel_exporter import warmup_export_cache
                 asyncio.create_task(warmup_export_cache(target_date_str))
             except Exception:

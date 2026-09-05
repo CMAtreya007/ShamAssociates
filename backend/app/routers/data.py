@@ -16,6 +16,8 @@ from app.schemas import (
 )
 from app.services.nse_fetcher import NSEFetcher, safe_float, classify_corporate_action
 
+from app.services.cache_manager import ram_cache
+
 def parse_nse_date(d_str: Optional[str]) -> datetime:
     """Parses various NSE date formats for accurate chronological sorting."""
     if not d_str or str(d_str).strip() in ("-", "", "None"):
@@ -39,11 +41,16 @@ fetcher = NSEFetcher()
 @router.get("/available-dates", response_model=List[str])
 async def get_available_dates(db: AsyncSession = Depends(get_db)):
     """Returns list of distinct trade dates available in local database."""
+    cached = ram_cache.get("available_dates")
+    if cached is not None:
+        return cached
+
     q = await db.execute(
         select(Nifty50Daily.date).distinct().order_by(desc(Nifty50Daily.date))
     )
-    dates = q.scalars().all()
-    return list(dates)
+    dates = list(q.scalars().all())
+    ram_cache.set("available_dates", dates, ttl=60.0)
+    return dates
 
 @router.get("/nifty50", response_model=List[Nifty50StockSchema])
 async def get_nifty50_data(
@@ -57,6 +64,11 @@ async def get_nifty50_data(
 
     if not date:
         return []
+
+    cache_key = f"nifty50:{date}"
+    cached = ram_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     q = await db.execute(
         select(Nifty50Daily).where(Nifty50Daily.date == date).order_by(desc(Nifty50Daily.pct_change))
@@ -86,6 +98,7 @@ async def get_nifty50_data(
         stock_dict.catalysts = ca_by_symbol.get(s.symbol, [])
         result.append(stock_dict)
 
+    ram_cache.set(cache_key, result, ttl=30.0)
     return result
 
 @router.get("/stock/{symbol}", response_model=StockDetailSchema)
@@ -97,6 +110,11 @@ async def get_stock_detail(
     """Returns deep quote, security details, and corporate action timeline for a single stock with on-demand fallback."""
     symbol = symbol.upper().strip()
     target_date = date
+
+    cache_key = f"stock_detail:{symbol}:{target_date or 'latest'}"
+    cached = ram_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     if not target_date:
         q_date = await db.execute(
@@ -313,7 +331,7 @@ async def get_stock_detail(
     actions_list.sort(key=lambda x: parse_nse_date(x.get("ex_date")), reverse=True)
 
     if d_dict:
-        return StockDetailSchema(
+        detail_res = StockDetailSchema(
             id=d_dict["id"],
             date=d_dict["date"],
             symbol=d_dict["symbol"],
@@ -337,10 +355,12 @@ async def get_stock_detail(
             meta_data=d_dict["meta_data"],
             actions=actions_list
         )
+        ram_cache.set(cache_key, detail_res, ttl=60.0)
+        return detail_res
 
     # 4. If detail is still None, create a graceful schema object using CorporateAction/Announcement metadata
     comp_name = ca_rows[0].company_name if ca_rows and ca_rows[0].company_name else symbol
-    return StockDetailSchema(
+    fallback_res = StockDetailSchema(
         date=target_date,
         symbol=symbol,
         company_name=comp_name,
@@ -352,6 +372,8 @@ async def get_stock_detail(
         meta_data={"companyName": comp_name, "series": "EQ"},
         actions=actions_list
     )
+    ram_cache.set(cache_key, fallback_res, ttl=60.0)
+    return fallback_res
 
 @router.get("/stock/{symbol}/actions", response_model=List[CorporateActionSchema])
 async def get_stock_actions(
@@ -360,11 +382,18 @@ async def get_stock_actions(
 ):
     """Returns historical and upcoming corporate actions for an individual stock."""
     symbol = symbol.upper().strip()
+    cache_key = f"stock_actions:{symbol}"
+    cached = ram_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     q = await db.execute(
         select(CorporateAction).where(CorporateAction.symbol == symbol).order_by(asc(CorporateAction.priority_level), desc(CorporateAction.ex_date))
     )
     actions = q.scalars().all()
-    return [CorporateActionSchema.model_validate(a) for a in actions]
+    res = [CorporateActionSchema.model_validate(a) for a in actions]
+    ram_cache.set(cache_key, res, ttl=60.0)
+    return res
 
 @router.get("/catalysts", response_model=List[CorporateActionSchema])
 async def get_market_catalysts(
@@ -374,6 +403,11 @@ async def get_market_catalysts(
     db: AsyncSession = Depends(get_db)
 ):
     """Returns chronologically and priority-sorted upcoming/recent Corporate Catalysts & Actions."""
+    cache_key = f"catalysts:{scope}:{action_type}:{limit}"
+    cached = ram_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         query = select(CorporateAction)
 
@@ -393,7 +427,9 @@ async def get_market_catalysts(
         actions = q.scalars().all()
         # Sort chronologically by true parsed date descending (latest/upcoming first)
         sorted_actions = sorted(actions, key=lambda a: parse_nse_date(a.ex_date), reverse=True)
-        return [CorporateActionSchema.model_validate(a) for a in sorted_actions]
+        res = [CorporateActionSchema.model_validate(a) for a in sorted_actions]
+        ram_cache.set(cache_key, res, ttl=30.0)
+        return res
     except Exception as err:
         return []
 
@@ -403,12 +439,19 @@ async def get_corporate_announcements(
     db: AsyncSession = Depends(get_db)
 ):
     """Returns recent corporate regulatory announcements and filings."""
+    cache_key = f"announcements:{limit}"
+    cached = ram_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         max_limit = limit if (limit and limit > 0) else 100
         query = select(CorporateAnnouncement).order_by(desc(CorporateAnnouncement.broadcast_date)).limit(max_limit)
         q = await db.execute(query)
         announcements = q.scalars().all()
-        return [CorporateAnnouncementSchema.model_validate(a) for a in announcements]
+        res = [CorporateAnnouncementSchema.model_validate(a) for a in announcements]
+        ram_cache.set(cache_key, res, ttl=30.0)
+        return res
     except Exception as err:
         return []
 
@@ -420,6 +463,11 @@ async def get_indices_by_category(
 ):
     """Returns index data for a category: broad, sectoral, thematic, strategy, or all."""
     cat_clean = category.lower().replace("-", " ").strip()
+    cache_key = f"indices:{cat_clean}:{date or 'latest'}"
+    cached = ram_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     cat_mapping = {
         "broad": "Broad Market",
         "broad market": "Broad Market",
@@ -451,4 +499,6 @@ async def get_indices_by_category(
         )
 
     indices = q.scalars().all()
-    return [IndexDailySchema.model_validate(i) for i in indices]
+    res = [IndexDailySchema.model_validate(i) for i in indices]
+    ram_cache.set(cache_key, res, ttl=30.0)
+    return res

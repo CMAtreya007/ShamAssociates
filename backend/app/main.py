@@ -53,6 +53,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+from fastapi.middleware.gzip import GZipMiddleware
+
+# Configure GZip compression for ultra-fast payload delivery
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
 # Configure CORS for local Vite, web hosting, and desktop shells
 app.add_middleware(
     CORSMiddleware,

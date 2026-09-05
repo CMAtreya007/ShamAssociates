@@ -43,6 +43,43 @@ export function setOnUnauthorizedCallback(cb: () => void) {
   onUnauthorizedCallback = cb;
 }
 
+// ================= ULTRA-FAST CLIENT-SIDE RESPONSE CACHE =================
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+  ttl: number;
+}
+
+const clientApiCache = new Map<string, CacheEntry<any>>();
+
+export function invalidateApiCache(prefix?: string) {
+  if (!prefix) {
+    clientApiCache.clear();
+  } else {
+    for (const key of clientApiCache.keys()) {
+      if (key.startsWith(prefix)) {
+        clientApiCache.delete(key);
+      }
+    }
+  }
+}
+
+async function cachedFetch<T>(
+  key: string,
+  fetcher: () => Promise<T>,
+  ttlMs: number = 20000
+): Promise<T> {
+  const cached = clientApiCache.get(key);
+  const now = Date.now();
+  if (cached && (now - cached.timestamp < cached.ttl)) {
+    return cached.data;
+  }
+
+  const fresh = await fetcher();
+  clientApiCache.set(key, { data: fresh, timestamp: now, ttl: ttlMs });
+  return fresh;
+}
+
 /**
  * Universal authenticated fetch helper attaching Bearer token and handling 401 unauth.
  */
@@ -73,6 +110,7 @@ export async function authFetch(input: string, init?: RequestInit): Promise<Resp
 // ================= AUTHENTICATION APIS =================
 
 export async function loginApi(username: string, pass: string): Promise<LoginResponseData> {
+  invalidateApiCache();
   const res = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -94,6 +132,7 @@ export async function getCurrentUser(): Promise<AuthUser> {
 }
 
 export async function logoutApi(): Promise<{ success: boolean; message: string }> {
+  invalidateApiCache();
   const res = await authFetch(`${API_BASE}/auth/logout`, { method: "POST" });
   if (!res.ok) return { success: true, message: "Logged out" };
   return res.json();
@@ -114,6 +153,7 @@ export async function getFetchStatus(): Promise<FetchStatus> {
 }
 
 export async function triggerManualSync(fetchDetails: boolean = true, targetDate?: string): Promise<{ success: boolean; message: string }> {
+  invalidateApiCache();
   const res = await authFetch(`${API_BASE}/fetch/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -128,6 +168,7 @@ export async function triggerManualSync(fetchDetails: boolean = true, targetDate
 }
 
 export async function triggerBackfill(date: string, background: boolean = false): Promise<{ success: boolean; message: string; log?: FetchLog }> {
+  invalidateApiCache();
   const res = await authFetch(`${API_BASE}/fetch/backfill?date=${encodeURIComponent(date)}&background=${background}`, {
     method: "POST",
   });
@@ -150,9 +191,11 @@ export interface UserScheduleSettings {
 }
 
 export async function getScheduleSettings(): Promise<UserScheduleSettings> {
-  const res = await authFetch(`${API_BASE}/settings/schedule`);
-  if (!res.ok) throw new Error("Failed to fetch schedule settings");
-  return res.json();
+  return cachedFetch("schedule_settings", async () => {
+    const res = await authFetch(`${API_BASE}/settings/schedule`);
+    if (!res.ok) throw new Error("Failed to fetch schedule settings");
+    return res.json();
+  }, 10000);
 }
 
 export async function saveScheduleSettings(data: {
@@ -161,6 +204,7 @@ export async function saveScheduleSettings(data: {
   downloads_folder?: string;
   auto_download_mode?: string;
 }): Promise<{ success: boolean; message: string; user_settings?: any; next_run_time: string | null }> {
+  invalidateApiCache("schedule_settings");
   const res = await authFetch(`${API_BASE}/settings/schedule`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -191,57 +235,77 @@ export async function getFetchLogs(limit: number = 20): Promise<FetchLog[]> {
 }
 
 export async function fetchAvailableDates(): Promise<string[]> {
-  const res = await authFetch(`${API_BASE}/data/available-dates`);
-  if (!res.ok) throw new Error("Failed to fetch dates");
-  return res.json();
+  return cachedFetch("available_dates", async () => {
+    const res = await authFetch(`${API_BASE}/data/available-dates`);
+    if (!res.ok) throw new Error("Failed to fetch dates");
+    return res.json();
+  }, 20000);
 }
 
 export async function fetchNifty50(date?: string): Promise<Nifty50Stock[]> {
-  const url = date ? `${API_BASE}/data/nifty50?date=${encodeURIComponent(date)}` : `${API_BASE}/data/nifty50`;
-  const res = await authFetch(url);
-  if (!res.ok) throw new Error("Failed to fetch Nifty 50 data");
-  return res.json();
+  const key = `nifty50_${date || "latest"}`;
+  return cachedFetch(key, async () => {
+    const url = date ? `${API_BASE}/data/nifty50?date=${encodeURIComponent(date)}` : `${API_BASE}/data/nifty50`;
+    const res = await authFetch(url);
+    if (!res.ok) throw new Error("Failed to fetch Nifty 50 data");
+    return res.json();
+  }, 20000);
 }
 
 export async function fetchStockDetail(symbol: string, date?: string): Promise<StockDetail> {
-  const url = date
-    ? `${API_BASE}/data/stock/${encodeURIComponent(symbol)}?date=${encodeURIComponent(date)}`
-    : `${API_BASE}/data/stock/${encodeURIComponent(symbol)}`;
-  const res = await authFetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch details for ${symbol}`);
-  return res.json();
+  const key = `stock_detail_${symbol}_${date || "latest"}`;
+  return cachedFetch(key, async () => {
+    const url = date
+      ? `${API_BASE}/data/stock/${encodeURIComponent(symbol)}?date=${encodeURIComponent(date)}`
+      : `${API_BASE}/data/stock/${encodeURIComponent(symbol)}`;
+    const res = await authFetch(url);
+    if (!res.ok) throw new Error(`Failed to fetch details for ${symbol}`);
+    return res.json();
+  }, 30000);
 }
 
 export async function fetchStockActions(symbol: string): Promise<CorporateAction[]> {
-  const url = `${API_BASE}/data/stock/${encodeURIComponent(symbol)}/actions`;
-  const res = await authFetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch actions for ${symbol}`);
-  return res.json();
+  const key = `stock_actions_${symbol}`;
+  return cachedFetch(key, async () => {
+    const url = `${API_BASE}/data/stock/${encodeURIComponent(symbol)}/actions`;
+    const res = await authFetch(url);
+    if (!res.ok) throw new Error(`Failed to fetch actions for ${symbol}`);
+    return res.json();
+  }, 30000);
 }
 
 export async function fetchCatalysts(scope: string = "all", actionType?: string, limit?: number): Promise<CorporateAction[]> {
-  let url = `${API_BASE}/data/catalysts?scope=${encodeURIComponent(scope)}`;
-  if (limit) url += `&limit=${limit}`;
-  if (actionType) url += `&action_type=${encodeURIComponent(actionType)}`;
-  const res = await authFetch(url);
-  if (!res.ok) throw new Error("Failed to fetch corporate catalysts");
-  return res.json();
+  const key = `catalysts_${scope}_${actionType || "all"}_${limit || "all"}`;
+  return cachedFetch(key, async () => {
+    let url = `${API_BASE}/data/catalysts?scope=${encodeURIComponent(scope)}`;
+    if (limit) url += `&limit=${limit}`;
+    if (actionType) url += `&action_type=${encodeURIComponent(actionType)}`;
+    const res = await authFetch(url);
+    if (!res.ok) throw new Error("Failed to fetch corporate catalysts");
+    return res.json();
+  }, 20000);
 }
 
 export async function fetchAnnouncements(limit?: number): Promise<CorporateAnnouncement[]> {
-  const url = limit ? `${API_BASE}/data/announcements?limit=${limit}` : `${API_BASE}/data/announcements`;
-  const res = await authFetch(url);
-  if (!res.ok) throw new Error("Failed to fetch announcements");
-  return res.json();
+  const key = `announcements_${limit || "all"}`;
+  return cachedFetch(key, async () => {
+    const url = limit ? `${API_BASE}/data/announcements?limit=${limit}` : `${API_BASE}/data/announcements`;
+    const res = await authFetch(url);
+    if (!res.ok) throw new Error("Failed to fetch announcements");
+    return res.json();
+  }, 20000);
 }
 
 export async function fetchIndices(category: string, date?: string): Promise<IndexDaily[]> {
-  const url = date
-    ? `${API_BASE}/data/indices/${encodeURIComponent(category)}?date=${encodeURIComponent(date)}`
-    : `${API_BASE}/data/indices/${encodeURIComponent(category)}`;
-  const res = await authFetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch ${category} indices`);
-  return res.json();
+  const key = `indices_${category}_${date || "latest"}`;
+  return cachedFetch(key, async () => {
+    const url = date
+      ? `${API_BASE}/data/indices/${encodeURIComponent(category)}?date=${encodeURIComponent(date)}`
+      : `${API_BASE}/data/indices/${encodeURIComponent(category)}`;
+    const res = await authFetch(url);
+    if (!res.ok) throw new Error(`Failed to fetch ${category} indices`);
+    return res.json();
+  }, 20000);
 }
 
 export async function downloadExportZip(date?: string, onProgress?: (step: string) => void): Promise<{ filename: string; size: number }> {
@@ -296,6 +360,7 @@ export interface IngestionResult {
 }
 
 export async function uploadHistoricalExcelFiles(files: File[]): Promise<IngestionResult> {
+  invalidateApiCache();
   const formData = new FormData();
   files.forEach((file) => {
     formData.append("files", file);

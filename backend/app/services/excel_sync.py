@@ -665,6 +665,8 @@ class MasterExcelSyncManager:
         await self.sync_all_masters()
 
         try:
+            from app.services.cache_manager import clear_all_data_caches
+            clear_all_data_caches()
             from app.services.excel_exporter import warmup_export_cache
             import asyncio
             asyncio.create_task(warmup_export_cache())
