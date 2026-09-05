@@ -34,7 +34,7 @@ const TEST_ACCOUNTS: TestAccount[] = [
     id: "admin",
     name: "Administrator",
     role: "Admin",
-    pass: "Admin@NSE2025!",
+    pass: "Shankar@001",
     badgeColor: "bg-purple-100 text-purple-700 border-purple-200",
     desc: "Full system config, sync, backfills & export"
   },
@@ -42,7 +42,7 @@ const TEST_ACCOUNTS: TestAccount[] = [
     id: "client_analyst",
     name: "Financial Analyst",
     role: "Analyst",
-    pass: "Analyst@NSE2025!",
+    pass: "Shankar@002",
     badgeColor: "bg-blue-100 text-blue-700 border-blue-200",
     desc: "Screener, corporate catalysts, sectoral analytics"
   },
@@ -50,7 +50,7 @@ const TEST_ACCOUNTS: TestAccount[] = [
     id: "client_tester",
     name: "Client QA Tester",
     role: "Tester",
-    pass: "Tester@NSE2025!",
+    pass: "Shankar@003",
     badgeColor: "bg-emerald-100 text-emerald-700 border-emerald-200",
     desc: "End-to-end verification, live tick validation"
   }
@@ -58,7 +58,7 @@ const TEST_ACCOUNTS: TestAccount[] = [
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
   const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("Admin@NSE2025!");
+  const [password, setPassword] = useState("Shankar@001");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

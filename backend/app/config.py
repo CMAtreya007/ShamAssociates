@@ -23,13 +23,13 @@ class Settings(BaseSettings):
 
     # Default Test User Credentials (customizable via .env / environment)
     USER_ADMIN_NAME: str = "admin"
-    USER_ADMIN_PASS: str = os.getenv("AUTH_USER_ADMIN_PASS", "Admin@NSE2025!")
+    USER_ADMIN_PASS: str = os.getenv("AUTH_USER_ADMIN_PASS", "Shankar@001")
     
     USER_ANALYST_NAME: str = "client_analyst"
-    USER_ANALYST_PASS: str = os.getenv("AUTH_USER_ANALYST_PASS", "Analyst@NSE2025!")
+    USER_ANALYST_PASS: str = os.getenv("AUTH_USER_ANALYST_PASS", "Shankar@002")
     
     USER_TESTER_NAME: str = "client_tester"
-    USER_TESTER_PASS: str = os.getenv("AUTH_USER_TESTER_PASS", "Tester@NSE2025!")
+    USER_TESTER_PASS: str = os.getenv("AUTH_USER_TESTER_PASS", "Shankar@003")
 
     # Frontend Dist Path for unified hosting
     FRONTEND_DIST: Path = BASE_DIR.parent / "frontend" / "dist"

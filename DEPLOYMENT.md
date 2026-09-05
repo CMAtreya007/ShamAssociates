@@ -10,9 +10,9 @@ The application is protected by a dedicated security gate. Without valid credent
 
 | Account Type | User ID / Username | Password | Role & Permissions |
 | :--- | :--- | :--- | :--- |
-| **System Administrator** | `admin` | `Admin@NSE2025!` | Full system control, sync triggers, historical backfills, Excel master downloads & settings |
-| **Financial Analyst** | `client_analyst` | `Analyst@NSE2025!` | Market data analysis, Sectoral/Thematic views, corporate catalysts, and full Excel export |
-| **QA / Client Tester** | `client_tester` | `Tester@NSE2025!` | End-to-end client verification, live real-time price streaming, screener validation |
+| **System Administrator** | `admin` | `Shankar@001` | Full system control, sync triggers, historical backfills, Excel master downloads & settings |
+| **Financial Analyst** | `analyst` / `client_analyst` | `Shankar@002` | Market data analysis, Sectoral/Thematic views, corporate catalysts, and full Excel export |
+| **QA / Client Tester** | `tester` / `client_tester` | `Shankar@003` | End-to-end client verification, live real-time price streaming, screener validation |
 
 > **Note on Customization**: You can change any of these passwords without editing code by setting environment variables in your cloud provider dashboard (e.g. `AUTH_USER_ADMIN_PASS`, `AUTH_USER_ANALYST_PASS`, `AUTH_USER_TESTER_PASS`).
 
@@ -38,9 +38,9 @@ Render offers free web service hosting for Docker containers and automatically h
    - `HOST`: `0.0.0.0`
    - `DEBUG`: `false`
    - `JWT_SECRET`: *(Click "Generate" or type a secret key)*
-   - `AUTH_USER_ADMIN_PASS`: `Admin@NSE2025!`
-   - `AUTH_USER_ANALYST_PASS`: `Analyst@NSE2025!`
-   - `AUTH_USER_TESTER_PASS`: `Tester@NSE2025!`
+   - `AUTH_USER_ADMIN_PASS`: `Shankar@001`
+   - `AUTH_USER_ANALYST_PASS`: `Shankar@002`
+   - `AUTH_USER_TESTER_PASS`: `Shankar@003`
 7. Click **Create Web Service**.
 8. Once deployed, Render will provide a live HTTPS URL (e.g., `https://nse-terminal-xxxx.onrender.com`).
 9. Share the live URL and the credentials with your client!

@@ -22,7 +22,7 @@ def test_login_and_authenticated_data_access():
     # 1. Login with admin credentials
     login_res = client.post("/api/auth/login", json={
         "username": "admin",
-        "password": "Admin@NSE2025!"
+        "password": "Shankar@001"
     })
     assert login_res.status_code == 200
     data = login_res.json()
@@ -47,7 +47,7 @@ def test_analyst_and_tester_logins():
     # Analyst login
     res1 = client.post("/api/auth/login", json={
         "username": "client_analyst",
-        "password": "Analyst@NSE2025!"
+        "password": "Shankar@002"
     })
     assert res1.status_code == 200
     assert res1.json()["user"]["role"] == "analyst"
@@ -55,7 +55,7 @@ def test_analyst_and_tester_logins():
     # Tester login
     res2 = client.post("/api/auth/login", json={
         "username": "client_tester",
-        "password": "Tester@NSE2025!"
+        "password": "Shankar@003"
     })
     assert res2.status_code == 200
     assert res2.json()["user"]["role"] == "tester"

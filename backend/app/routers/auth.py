@@ -91,13 +91,13 @@ async def logout(current_user: Dict[str, Any] = Depends(get_current_user)):
 @router.get("/accounts", response_model=List[AccountPublicInfo])
 async def list_testing_accounts():
     """Returns public account roles and usernames for client test guidance (passwords omitted)."""
-    users = get_authorized_users()
-    accounts = []
-    for u in users.values():
-        accounts.append(AccountPublicInfo(
+    from app.services.auth import get_distinct_accounts_info
+    accounts_data = get_distinct_accounts_info()
+    return [
+        AccountPublicInfo(
             username=u["username"],
             name=u["name"],
             role=u["role"],
             description=u["description"]
-        ))
-    return accounts
+        ) for u in accounts_data
+    ]

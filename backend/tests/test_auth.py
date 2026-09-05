@@ -23,24 +23,30 @@ def test_authorized_users_catalog():
 
 def test_successful_authentication():
     # Admin check
-    admin = authenticate_user("admin", "Admin@NSE2025!")
+    admin = authenticate_user("admin", "Shankar@001")
     assert admin is not None
     assert admin["role"] == "admin"
     assert admin["username"] == "admin"
 
     # Analyst check
-    analyst = authenticate_user("client_analyst", "Analyst@NSE2025!")
+    analyst = authenticate_user("analyst", "Shankar@002")
     assert analyst is not None
     assert analyst["role"] == "analyst"
 
+    analyst2 = authenticate_user("client_analyst", "Shankar@002")
+    assert analyst2 is not None
+
     # Tester check
-    tester = authenticate_user("client_tester", "Tester@NSE2025!")
+    tester = authenticate_user("tester", "Shankar@003")
     assert tester is not None
     assert tester["role"] == "tester"
 
+    tester2 = authenticate_user("client_tester", "Shankar@003")
+    assert tester2 is not None
+
 def test_failed_authentication():
     assert authenticate_user("admin", "WrongPassword123") is None
-    assert authenticate_user("nonexistent_user", "Admin@NSE2025!") is None
+    assert authenticate_user("nonexistent_user", "Shankar@001") is None
     assert authenticate_user("", "") is None
 
 def test_token_creation_and_verification():

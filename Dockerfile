@@ -5,14 +5,14 @@
 # ==========================================
 
 # ----------------- Stage 1: Build Frontend -----------------
-FROM node:20-alpine AS frontend-builder
+FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend
 
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm install
 
 COPY frontend/ ./
-RUN npm run build
+RUN chmod -R +x node_modules/.bin && npm run build
 
 # ----------------- Stage 2: Backend + Final Runtime -----------------
 FROM python:3.11-slim AS runtime

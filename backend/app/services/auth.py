@@ -4,7 +4,7 @@ import base64
 import json
 import time
 import secrets
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from fastapi import HTTPException, Security, Depends, status, Request, WebSocket
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
@@ -21,30 +21,62 @@ def _base64url_decode(data_str: str) -> bytes:
         data_str += '=' * padding
     return base64.urlsafe_b64decode(data_str.encode('utf-8'))
 
-def get_authorized_users() -> Dict[str, Dict[str, Any]]:
-    """Returns the authorized users mapping loaded from settings / environment."""
-    return {
-        settings.USER_ADMIN_NAME.strip().lower(): {
-            "username": settings.USER_ADMIN_NAME.strip(),
-            "password": settings.USER_ADMIN_PASS,
+def get_distinct_accounts_info() -> List[Dict[str, Any]]:
+    """Returns unique distinct accounts for public test guidance."""
+    return [
+        {
+            "username": "admin",
             "name": "Administrator",
             "role": "admin",
             "description": "Full administrative control, sync, and system configuration"
         },
-        settings.USER_ANALYST_NAME.strip().lower(): {
-            "username": settings.USER_ANALYST_NAME.strip(),
-            "password": settings.USER_ANALYST_PASS,
+        {
+            "username": "client_analyst",
             "name": "Financial Analyst",
             "role": "analyst",
             "description": "Market data analysis, sectoral screening, and Excel export access"
         },
-        settings.USER_TESTER_NAME.strip().lower(): {
-            "username": settings.USER_TESTER_NAME.strip(),
-            "password": settings.USER_TESTER_PASS,
+        {
+            "username": "client_tester",
             "name": "Client QA Tester",
             "role": "tester",
             "description": "Full end-to-end application testing and live streaming verification"
         }
+    ]
+
+def get_authorized_users() -> Dict[str, Dict[str, Any]]:
+    """Returns the authorized users mapping loaded from settings / environment."""
+    admin_info = {
+        "username": "admin",
+        "password": settings.USER_ADMIN_PASS,
+        "name": "Administrator",
+        "role": "admin",
+        "description": "Full administrative control, sync, and system configuration"
+    }
+    analyst_info = {
+        "username": "client_analyst",
+        "password": settings.USER_ANALYST_PASS,
+        "name": "Financial Analyst",
+        "role": "analyst",
+        "description": "Market data analysis, sectoral screening, and Excel export access"
+    }
+    tester_info = {
+        "username": "client_tester",
+        "password": settings.USER_TESTER_PASS,
+        "name": "Client QA Tester",
+        "role": "tester",
+        "description": "Full end-to-end application testing and live streaming verification"
+    }
+
+    return {
+        "admin": admin_info,
+        settings.USER_ADMIN_NAME.strip().lower(): admin_info,
+        "analyst": analyst_info,
+        "client_analyst": analyst_info,
+        settings.USER_ANALYST_NAME.strip().lower(): analyst_info,
+        "tester": tester_info,
+        "client_tester": tester_info,
+        settings.USER_TESTER_NAME.strip().lower(): tester_info,
     }
 
 def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:

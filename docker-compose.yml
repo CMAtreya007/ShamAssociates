@@ -15,9 +15,9 @@ services:
       - DEBUG=False
       - JWT_SECRET=nse_secure_production_secret_2025_market
       # Optional: Override default credentials
-      - AUTH_USER_ADMIN_PASS=Admin@NSE2025!
-      - AUTH_USER_ANALYST_PASS=Analyst@NSE2025!
-      - AUTH_USER_TESTER_PASS=Tester@NSE2025!
+      - AUTH_USER_ADMIN_PASS=Shankar@001
+      - AUTH_USER_ANALYST_PASS=Shankar@002
+      - AUTH_USER_TESTER_PASS=Shankar@003
     volumes:
       - nse_data:/app/backend/data
       - nse_exports:/app/backend/exports

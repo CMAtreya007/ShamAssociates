@@ -13,8 +13,8 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: AUTH_USER_ADMIN_PASS
-        value: "Admin@NSE2025!"
+        value: "Shankar@001"
       - key: AUTH_USER_ANALYST_PASS
-        value: "Analyst@NSE2025!"
+        value: "Shankar@002"
       - key: AUTH_USER_TESTER_PASS
-        value: "Tester@NSE2025!"
+        value: "Shankar@003"
