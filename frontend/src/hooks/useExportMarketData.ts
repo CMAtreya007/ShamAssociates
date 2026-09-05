@@ -30,8 +30,20 @@ export function useExportMarketData() {
         throw new Error(errJson.detail || "Failed to generate Excel packages");
       }
 
-      const exportDate = response.headers.get("X-Export-Date") || dateStr;
-      const fileName = `NSE_Market_Data_${exportDate}.zip`;
+      // Extract server-resolved filename and date
+      const contentDisposition = response.headers.get("content-disposition");
+      let fileName = "";
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^";]+)"?/i);
+        if (match && match[1]) {
+          fileName = match[1];
+        }
+      }
+
+      const exportDate = response.headers.get("X-Export-Date");
+      if (!fileName) {
+        fileName = `NSE_Market_Data_${exportDate || dateStr}.zip`;
+      }
 
       setProgressStage("Downloading archive...");
       const blob = await response.blob();
@@ -46,7 +58,7 @@ export function useExportMarketData() {
 
       toast.success("Export Complete", {
         id: "export-toast",
-        description: `Downloaded: ${fileName}`
+        description: `Downloaded: ${fileName}${exportDate && exportDate !== dateStr ? ` (Latest live session: ${exportDate})` : ""}`
       });
     } catch (err: any) {
       toast.error("Export Failed", {
