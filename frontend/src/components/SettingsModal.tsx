@@ -211,29 +211,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl shadow-modal overflow-hidden">
         
         {/* Header */}
-        <div className="p-5 border-b border-slate-100 bg-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#00B386] border border-emerald-200/60 flex items-center justify-center">
+        <div className="p-4 sm:p-5 border-b border-slate-100 bg-white flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-emerald-50 text-[#00B386] border border-emerald-200/60 flex items-center justify-center shrink-0">
               <Settings className="w-5 h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-slate-900">Application Settings & System Storage</h2>
-                <span className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 font-bold uppercase">
-                  <UserCheck className="w-3 h-3" />
-                  {username}
-                </span>
-                <span className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 font-bold">
-                  <Laptop className="w-3 h-3 text-slate-500" />
-                  IP: {clientIp}
-                </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <h2 className="text-sm sm:text-base font-bold text-slate-900 truncate">Application Settings & System Storage</h2>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="flex items-center gap-1 text-[9px] sm:text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 font-bold uppercase shrink-0">
+                    <UserCheck className="w-3 h-3" />
+                    {username}
+                  </span>
+                  <span className="flex items-center gap-1 text-[9px] sm:text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 font-bold shrink-0">
+                    <Laptop className="w-3 h-3 text-slate-500" />
+                    IP: {clientIp}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 transition cursor-pointer"
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 transition cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
           </button>

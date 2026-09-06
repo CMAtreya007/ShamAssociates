@@ -47,6 +47,7 @@ export function App() {
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
   // Export Hook
   const { downloadAll, exporting } = useExportMarketData();
@@ -316,6 +317,7 @@ export function App() {
         onOpenLogs={() => setIsLogsOpen(true)}
         onOpenUpload={() => setIsUploadOpen(true)}
         onOpenCommand={() => setIsCommandOpen(true)}
+        onToggleMobileNav={() => setIsMobileNavOpen((prev) => !prev)}
         isSyncing={!!status?.is_syncing}
         isExporting={exporting}
         isStreamConnected={isStreamConnected}
@@ -328,17 +330,19 @@ export function App() {
       {/* Main Terminal Viewport with Sidebar & Content */}
       <div className="flex-1 flex overflow-hidden">
         
-        {/* Left Navigation Sidebar */}
+        {/* Left Navigation Sidebar (Desktop + Mobile Slide-Over) */}
         <LeftSidebar
           activeView={activeView}
           onViewChange={setActiveView}
           onOpenLogs={() => setIsLogsOpen(true)}
           onOpenSettings={() => setIsSettingsOpen(true)}
+          isOpenMobile={isMobileNavOpen}
+          onCloseMobile={() => setIsMobileNavOpen(false)}
         />
 
         {/* Center Main Dashboard Canvas */}
-        <main className="flex-1 overflow-y-auto p-6 bg-slate-50">
-          <div className="max-w-7xl mx-auto space-y-6">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 bg-slate-50">
+          <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
             
             {/* 1. Screener/TailAdmin 4-Card Market Pulse Grid */}
             <MarketPulse

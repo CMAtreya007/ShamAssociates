@@ -75,35 +75,35 @@ export const FetchLogsModal: React.FC<FetchLogsModalProps> = ({ isOpen, onClose 
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-4xl shadow-modal overflow-hidden flex flex-col max-h-[88vh]">
         
         {/* Header */}
-        <div className="p-5 border-b border-slate-100 bg-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#00B386] border border-emerald-200/60 flex items-center justify-center">
+        <div className="p-4 sm:p-5 border-b border-slate-100 bg-white flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-emerald-50 text-[#00B386] border border-emerald-200/60 flex items-center justify-center shrink-0">
               <History className="w-5 h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-slate-900">Real-Time Ingestion Audit Logs</h2>
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 font-bold">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <h2 className="text-sm sm:text-base font-bold text-slate-900 truncate">Real-Time Ingestion Audit Logs</h2>
+                <span className="inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 font-bold shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
                   LIVE AUDIT
                 </span>
               </div>
-              <p className="text-xs text-slate-500">Live transaction history for automated cron, auto-downloads, backfills, and uploads</p>
+              <p className="text-[11px] sm:text-xs text-slate-500 truncate hidden xs:block">Live transaction history for automated cron, auto-downloads, backfills, and uploads</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={() => load(false)}
               disabled={isLoading}
-              className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer"
+              className="p-1.5 sm:p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer"
               title="Refresh Logs"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
             </button>
             <button
               onClick={onClose}
-              className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer"
+              className="p-1.5 sm:p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -111,7 +111,7 @@ export const FetchLogsModal: React.FC<FetchLogsModalProps> = ({ isOpen, onClose 
         </div>
 
         {/* Filter Navigation Bar */}
-        <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-200/80 flex items-center gap-2 overflow-x-auto">
+        <div className="px-4 sm:px-6 py-2.5 bg-slate-50 border-b border-slate-200/80 flex items-center gap-2 overflow-x-auto">
           {[
             { id: "ALL", label: "All Logs" },
             { id: "SYNC", label: "Market Sync" },
@@ -122,7 +122,7 @@ export const FetchLogsModal: React.FC<FetchLogsModalProps> = ({ isOpen, onClose 
             <button
               key={tab.id}
               onClick={() => setActiveFilter(tab.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer shrink-0 ${
                 activeFilter === tab.id
                   ? "bg-slate-900 text-white shadow-xs"
                   : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/70"
@@ -131,20 +131,20 @@ export const FetchLogsModal: React.FC<FetchLogsModalProps> = ({ isOpen, onClose 
               {tab.label}
             </button>
           ))}
-          <span className="ml-auto text-[11px] text-slate-500 font-medium">
+          <span className="ml-auto text-[11px] text-slate-500 font-medium shrink-0 pl-2">
             Showing {filteredLogs.length} entries
           </span>
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto bg-slate-50/50 flex-1">
+        <div className="p-3 sm:p-6 overflow-y-auto bg-slate-50/50 flex-1">
           {isLoading && logs.length === 0 ? (
             <div className="py-20 text-center text-xs text-slate-400">Loading audit history from database...</div>
           ) : filteredLogs.length === 0 ? (
             <div className="py-20 text-center text-xs text-slate-400">No logs found matching selected category.</div>
           ) : (
-            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-card">
-              <table className="w-full text-left text-xs border-collapse">
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-card overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse min-w-[620px]">
                 <thead className="bg-slate-50 border-b border-slate-100 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                   <tr>
                     <th className="py-3 px-4 w-8"></th>

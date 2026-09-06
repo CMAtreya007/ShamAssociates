@@ -11,7 +11,8 @@ import {
   Loader2, 
   CalendarDays,
   UploadCloud,
-  LogOut
+  LogOut,
+  Menu
 } from "lucide-react";
 import { FetchStatus, AuthUser } from "../types";
 
@@ -25,6 +26,7 @@ interface TopHeaderProps {
   onOpenLogs: () => void;
   onOpenUpload?: () => void;
   onOpenCommand: () => void;
+  onToggleMobileNav?: () => void;
   isSyncing: boolean;
   isExporting: boolean;
   isStreamConnected?: boolean;
@@ -44,6 +46,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onOpenLogs,
   onOpenUpload,
   onOpenCommand,
+  onToggleMobileNav,
   isSyncing,
   isExporting,
   isStreamConnected = false,
@@ -76,15 +79,28 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   const syncInterval = status?.adaptive_sync?.interval_label?.split(" ")[0] || "10m";
 
   return (
-    <header className="w-full h-16 border-b border-slate-200/80 bg-white/95 backdrop-blur-md px-3 sm:px-5 lg:px-6 flex items-center justify-between gap-2 sm:gap-3 lg:gap-4 select-none sticky top-0 z-30 shadow-xs">
+    <header className="w-full h-16 border-b border-slate-200/80 bg-white/95 backdrop-blur-md px-3 sm:px-4 md:px-6 flex items-center justify-between gap-2 sm:gap-3 lg:gap-4 select-none sticky top-0 z-30 shadow-xs">
       
-      {/* 1. Left: Brand & Live IST Clock */}
-      <div className="flex items-center gap-2.5 sm:gap-4 shrink-0">
+      {/* 1. Left: Mobile Hamburger Menu & Brand Identity */}
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        
+        {/* Mobile Hamburger Drawer Button (< lg) */}
+        {onToggleMobileNav && (
+          <button
+            type="button"
+            onClick={onToggleMobileNav}
+            className="lg:hidden p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer shrink-0"
+            title="Open Menu"
+          >
+            <Menu className="w-4 h-4 stroke-[2.5]" />
+          </button>
+        )}
+
         <motion.div 
           initial={{ opacity: 0, x: -10 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.3 }}
-          className="flex items-center gap-2.5"
+          className="flex items-center gap-2 sm:gap-2.5"
         >
           <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-[#00B386] to-teal-400 flex items-center justify-center text-white shadow-sm shadow-emerald-500/20 shrink-0">
             <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
@@ -94,7 +110,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               <span className="font-bold text-sm sm:text-base tracking-tight text-slate-900 font-sans">
                 NSE Pulse
               </span>
-              <span className="text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-[#00B386] border border-emerald-200/60 font-mono">
+              <span className="text-[9px] sm:text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 text-[#00B386] border border-emerald-200/60 font-mono">
                 LIVE
               </span>
             </div>
@@ -104,7 +120,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </div>
         </motion.div>
 
-        {/* Live IST Market Clock */}
+        {/* Live IST Market Clock (>= 2xl screens) */}
         <div className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-xs font-mono text-slate-600">
           <Clock className="w-3.5 h-3.5 text-slate-400" />
           <span className="text-slate-400">IST:</span>
@@ -113,23 +129,23 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       </div>
 
       {/* 2. Center: Global Search Trigger (⌘K) */}
-      <div className="flex-1 max-w-[140px] sm:max-w-xs md:max-w-sm lg:max-w-md mx-1 sm:mx-2">
+      <div className="flex-1 max-w-[120px] sm:max-w-xs md:max-w-sm lg:max-w-md mx-1 sm:mx-2">
         <motion.button
           whileHover={{ scale: 1.01 }}
           whileTap={{ scale: 0.99 }}
           type="button"
           onClick={onOpenCommand}
           title="Search stocks, indices, and commands (⌘K or Ctrl+K)"
-          className="w-full flex items-center justify-between px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 text-xs text-slate-500 transition shadow-inner-xs group cursor-pointer"
+          className="w-full flex items-center justify-between px-2 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 text-xs text-slate-500 transition shadow-inner-xs group cursor-pointer"
         >
-          <div className="flex items-center gap-2 truncate">
+          <div className="flex items-center gap-1.5 sm:gap-2 truncate">
             <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 group-hover:text-emerald-600 transition shrink-0" />
             <span className="text-slate-500 font-medium truncate text-[11px] sm:text-xs">
               <span className="hidden sm:inline">Search stocks, indices...</span>
               <span className="inline sm:hidden">Search...</span>
             </span>
           </div>
-          <kbd className="hidden sm:inline-block text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-white text-slate-500 border border-slate-200 shadow-2xs shrink-0 ml-1.5">
+          <kbd className="hidden md:inline-block text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-white text-slate-500 border border-slate-200 shadow-2xs shrink-0 ml-1.5">
             ⌘K
           </kbd>
         </motion.button>
@@ -138,7 +154,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       {/* 3. Right Controls & Actions Bar */}
       <div className="flex items-center gap-1.5 sm:gap-2 lg:gap-2.5 shrink-0">
         
-        {/* Real-time Stream Live Ticker Pill */}
+        {/* Real-time Stream Live Ticker Pill (>= lg screens) */}
         <div className="hidden lg:flex items-center">
           <div 
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50/90 border border-emerald-200/80 text-emerald-800 text-[11px] font-medium font-mono"
@@ -164,7 +180,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             <select
               value={selectedDate}
               onChange={(e) => onDateChange(e.target.value)}
-              className="bg-transparent text-slate-800 font-mono font-semibold focus:outline-none cursor-pointer text-[11px] sm:text-xs pr-0.5"
+              className="bg-transparent text-slate-800 font-mono font-semibold focus:outline-none cursor-pointer text-[10px] sm:text-xs pr-0.5 max-w-[85px] sm:max-w-none truncate"
             >
               {availableDates.map((d) => (
                 <option key={d} value={d} className="bg-white text-slate-800 font-mono">
@@ -193,7 +209,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </div>
         </div>
 
-        {/* Import Excel Action */}
+        {/* Import Excel Action (hidden on mobile, shown on lg) */}
         {onOpenUpload && (
           <motion.button
             whileHover={{ scale: 1.03 }}
@@ -201,21 +217,21 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             type="button"
             onClick={onOpenUpload}
             title="Import Historical Excel Files"
-            className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 transition text-xs font-medium cursor-pointer"
+            className="hidden sm:flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 transition text-xs font-medium cursor-pointer"
           >
             <UploadCloud className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
             <span className="hidden xl:inline text-[11px]">Import</span>
           </motion.button>
         )}
 
-        {/* Ingestion Audit Logs Action */}
+        {/* Ingestion Audit Logs Action (hidden on mobile, shown on sm+) */}
         <motion.button
           whileHover={{ scale: 1.04 }}
           whileTap={{ scale: 0.96 }}
           type="button"
           onClick={onOpenLogs}
           title="View Ingestion Audit Logs"
-          className="p-1.5 sm:p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 transition cursor-pointer shrink-0"
+          className="hidden md:flex p-1.5 sm:p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 transition cursor-pointer shrink-0"
         >
           <History className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </motion.button>
@@ -231,7 +247,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           title={`Auto-Sync: ${syncInterval}. Click to sync immediately.`}
         >
           <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${isSyncing ? "animate-spin text-emerald-600" : ""}`} />
-          <span className="hidden sm:inline text-[11px]">
+          <span className="hidden md:inline text-[11px]">
             {syncInterval}
           </span>
           <span className={`w-1.5 h-1.5 rounded-full ${isSyncing ? "bg-blue-500 animate-ping" : (isMarketOpen ? "bg-emerald-500" : "bg-amber-400")}`}></span>
@@ -244,20 +260,21 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           type="button"
           onClick={onExport}
           disabled={isExporting || isSyncing}
-          className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-gradient-to-r from-[#00B386] to-emerald-600 hover:from-[#009E76] hover:to-emerald-700 text-white text-xs font-semibold shadow-xs shadow-emerald-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shrink-0"
+          className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-gradient-to-r from-[#00B386] to-emerald-600 hover:from-[#009E76] hover:to-emerald-700 text-white text-xs font-semibold shadow-xs shadow-emerald-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shrink-0"
         >
           {isExporting ? (
             <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
           ) : (
             <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
           )}
-          <span className="text-[11px] sm:text-xs">Download All</span>
+          <span className="hidden sm:inline text-xs">Download All</span>
+          <span className="inline sm:hidden text-[10px]">Export</span>
         </motion.button>
 
         {/* Authenticated User Profile & Logout */}
         {user && (
-          <div className="flex items-center gap-1.5 pl-1.5 sm:pl-2 border-l border-slate-200 shrink-0">
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-xl bg-slate-100/90 border border-slate-200/80">
+          <div className="flex items-center gap-1 sm:gap-1.5 pl-1 sm:pl-2 border-l border-slate-200 shrink-0">
+            <div className="flex items-center gap-1.5 px-1.5 sm:px-2 py-1 rounded-xl bg-slate-100/90 border border-slate-200/80">
               <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold uppercase shrink-0">
                 {user.username ? user.username.charAt(0) : "A"}
               </div>

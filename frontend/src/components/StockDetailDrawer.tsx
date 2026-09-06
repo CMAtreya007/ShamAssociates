@@ -100,15 +100,15 @@ export const StockDetailDrawer: React.FC<StockDetailDrawerProps> = ({ symbol, se
           animate={{ x: 0 }}
           exit={{ x: "100%" }}
           transition={{ type: "spring", damping: 28, stiffness: 320 }}
-          className="relative w-full max-w-2xl h-full bg-white border-l border-slate-200 shadow-2xl flex flex-col z-10 overflow-hidden font-sans"
+          className="relative w-full max-w-full sm:max-w-xl md:max-w-2xl h-full bg-white border-l border-slate-200 shadow-2xl flex flex-col z-10 overflow-hidden font-sans"
         >
           
           {/* 1. Header Bar with Company Identity & Live Price */}
-          <div className="p-6 border-b border-slate-200 bg-white">
-            <div className="flex items-start justify-between">
+          <div className="p-4 sm:p-6 border-b border-slate-200 bg-white">
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-bold text-slate-900 tracking-tight">{symbol}</h2>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">{symbol}</h2>
                   <span className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-mono font-semibold">
                     {mData.series || "EQ"}
                   </span>
@@ -118,25 +118,25 @@ export const StockDetailDrawer: React.FC<StockDetailDrawerProps> = ({ symbol, se
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-500 mt-1 font-medium">
+                <p className="text-[11px] sm:text-xs text-slate-500 mt-1 font-medium">
                   {detail?.company_name || mData.companyName || symbol} • Trade Date: <span className="font-mono text-slate-800 font-semibold">{selectedDate}</span>
                 </p>
               </div>
 
               <button
                 onClick={onClose}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 transition"
+                className="p-1.5 sm:p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 transition cursor-pointer shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Price & Sparkline Row */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-4 pt-4 border-t border-slate-100">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-slate-100">
               <div>
-                <span className="text-xs text-slate-400 font-medium block">Current Market Price</span>
-                <div className="flex items-baseline gap-2.5 mt-0.5">
-                  <span className="text-2xl font-bold text-slate-900 font-mono tabular-nums">
+                <span className="text-[11px] sm:text-xs text-slate-400 font-medium block">Current Market Price</span>
+                <div className="flex items-baseline gap-2 mt-0.5 flex-wrap">
+                  <span className="text-xl sm:text-2xl font-bold text-slate-900 font-mono tabular-nums">
                     ₹{ltp > 0 ? ltp.toLocaleString("en-IN", { minimumFractionDigits: 2 }) : "-"}
                   </span>
                   <span
@@ -153,7 +153,7 @@ export const StockDetailDrawer: React.FC<StockDetailDrawerProps> = ({ symbol, se
               </div>
 
               {/* Recharts Mini Sparkline */}
-              <div className="w-48 h-12">
+              <div className="w-full sm:w-48 h-12">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={sparklineData}>
                     <defs>
@@ -178,7 +178,7 @@ export const StockDetailDrawer: React.FC<StockDetailDrawerProps> = ({ symbol, se
           </div>
 
           {/* 2. Scrollable Screener-Style Body */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6 bg-slate-50/50">
             {isLoading ? (
               <div className="flex flex-col items-center justify-center py-20 text-slate-500">
                 <div className="w-8 h-8 border-2 border-slate-200 border-t-[#00B386] rounded-full animate-spin mb-3" />
