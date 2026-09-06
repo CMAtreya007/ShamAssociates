@@ -17,7 +17,9 @@ import {
   X, 
   Loader2,
   Sparkles,
-  Layers
+  RefreshCw,
+  Zap,
+  ShieldCheck
 } from "lucide-react";
 import { toast } from "sonner";
 import { CustomStockItem, SymbolSearchResult } from "../types";
@@ -37,13 +39,42 @@ interface CustomStocksViewProps {
 
 type SortField = keyof CustomStockItem | "turnover_cr" | "day_range_pos" | "year_range_pos";
 
+// Client-side in-memory cache for 0ms instant page loads across navigation
+const customStocksMemoryCache: Record<string, CustomStockItem[]> = {};
+
+// Popular suggested stocks for 1-click quick add
+const POPULAR_SUGGESTIONS = [
+  { symbol: "RELIANCE", name: "Reliance Industries Ltd.", industry: "Oil & Gas" },
+  { symbol: "TCS", name: "Tata Consultancy Services Ltd.", industry: "IT Services" },
+  { symbol: "HDFCBANK", name: "HDFC Bank Ltd.", industry: "Private Bank" },
+  { symbol: "INFY", name: "Infosys Ltd.", industry: "IT Services" },
+  { symbol: "ICICIBANK", name: "ICICI Bank Ltd.", industry: "Private Bank" },
+  { symbol: "TATAMOTORS", name: "Tata Motors Ltd.", industry: "Automobile" },
+  { symbol: "SBIN", name: "State Bank of India", industry: "Public Bank" },
+  { symbol: "BHARTIARTL", name: "Bharti Airtel Ltd.", industry: "Telecom" },
+  { symbol: "ITC", name: "ITC Ltd.", industry: "FMCG" },
+  { symbol: "LT", name: "Larsen & Toubro Ltd.", industry: "Construction" },
+  { symbol: "BAJFINANCE", name: "Bajaj Finance Ltd.", industry: "Financial Services" },
+  { symbol: "MARUTI", name: "Maruti Suzuki India Ltd.", industry: "Automobile" },
+];
+
 export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
   selectedDate,
   onSelectStock,
   priceFlashMap = {}
 }) => {
-  const [stocks, setStocks] = useState<CustomStockItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const cacheKey = selectedDate || "latest";
+
+  // Initial state retrieved from memory cache for 0ms sub-second rendering
+  const [stocks, setStocks] = useState<CustomStockItem[]>(() => {
+    return customStocksMemoryCache[cacheKey] || [];
+  });
+  
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    return !customStocksMemoryCache[cacheKey];
+  });
+  
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField>("pct_change");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
@@ -56,25 +87,34 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
   const [isAdding, setIsAdding] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
-  // Load Custom Stocks
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
+  // Load Custom Stocks with SWR (Stale-While-Revalidate) pattern
+  const loadData = useCallback(async (isSilent = false) => {
+    if (!isSilent && stocks.length === 0) {
+      setIsLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
+
     try {
       const data = await fetchCustomStocks(selectedDate);
       setStocks(data);
+      customStocksMemoryCache[cacheKey] = data;
     } catch (err) {
       console.error("Failed to load custom stocks:", err);
-      toast.error("Could not load custom stocks watchlist");
+      if (stocks.length === 0) {
+        toast.error("Could not load custom stocks watchlist");
+      }
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
-  }, [selectedDate]);
+  }, [selectedDate, cacheKey, stocks.length]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadData(stocks.length > 0);
+  }, [selectedDate]);
 
-  // Autocomplete search debounce
+  // Autocomplete search debounce (150ms for snappy responsiveness)
   useEffect(() => {
     if (!addSearchQuery.trim()) {
       setSearchResults([]);
@@ -91,12 +131,12 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
       } finally {
         setIsSearching(false);
       }
-    }, 200);
+    }, 150);
 
     return () => clearTimeout(timer);
   }, [addSearchQuery]);
 
-  // Handle Add Stock
+  // Handle Add Stock with optimistic update
   const handleAddStock = async (symbol: string, companyName?: string) => {
     const cleanSym = symbol.trim().toUpperCase();
     if (!cleanSym) return;
@@ -108,7 +148,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
       setAddSearchQuery("");
       setSearchResults([]);
       setIsAddModalOpen(false);
-      await loadData();
+      await loadData(true);
     } catch (err: any) {
       toast.error(err.message || `Failed to add ${cleanSym}`);
     } finally {
@@ -116,14 +156,24 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
     }
   };
 
-  // Handle Remove Stock
+  // Handle Remove Stock with optimistic UI update
   const handleRemoveStock = async (symbol: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const prevStocks = [...stocks];
+    // Optimistic removal
+    setStocks((prev) => {
+      const updated = prev.filter((s) => s.symbol !== symbol);
+      customStocksMemoryCache[cacheKey] = updated;
+      return updated;
+    });
+
     try {
       await removeCustomStock(symbol);
-      setStocks((prev) => prev.filter((s) => s.symbol !== symbol));
       toast.success(`Removed ${symbol} from Custom Stocks`);
     } catch (err: any) {
+      // Revert optimistic update on failure
+      setStocks(prevStocks);
+      customStocksMemoryCache[cacheKey] = prevStocks;
       toast.error(err.message || `Failed to remove ${symbol}`);
     }
   };
@@ -174,7 +224,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
     };
   }, [stocks]);
 
-  // Max volume for visualization
+  // Max volume for relative bar visualization
   const maxVolume = useMemo(() => {
     if (!stocks || stocks.length === 0) return 1;
     return Math.max(...stocks.map((s) => s.volume || 0), 1);
@@ -189,7 +239,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
     }
   };
 
-  // Filter and sort stocks
+  // Fast memoized filter and sort
   const filteredAndSorted = useMemo(() => {
     return stocks
       .filter((s) => {
@@ -246,6 +296,12 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-[#00B386] border border-emerald-200/60 font-semibold">
                 {stocks.length} Tracked
               </span>
+              {isRefreshing && (
+                <span className="flex items-center gap-1 text-[10px] font-mono text-emerald-600 bg-emerald-50/80 px-2 py-0.5 rounded-md border border-emerald-200/50 animate-pulse">
+                  <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                  <span>Syncing live...</span>
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
               Personalized watchlist with live intraday analytics, 4 performance indicators, and multi-sheet Excel export
@@ -355,49 +411,91 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
         </div>
       )}
 
-      {/* 3. Table Filter Search */}
+      {/* 3. Table Filter Search Toolbar */}
       {stocks.length > 0 && (
         <div className="flex items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-card">
           <div className="relative w-full sm:w-80">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Filter custom stocks..."
+              placeholder="Filter custom stocks by symbol or company..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
             />
           </div>
-          <div className="text-xs text-slate-500 font-medium">
-            Showing <strong className="text-slate-900 font-mono">{filteredAndSorted.length}</strong> of {stocks.length} custom stocks
+          <div className="flex items-center gap-3 text-xs text-slate-500 font-medium">
+            <span>
+              Showing <strong className="text-slate-900 font-mono">{filteredAndSorted.length}</strong> of {stocks.length} custom stocks
+            </span>
+            <button
+              onClick={() => loadData(false)}
+              className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition"
+              title="Refresh custom stocks"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-emerald-600" : ""}`} />
+            </button>
           </div>
         </div>
       )}
 
       {/* 4. Table or Empty State */}
       {isLoading ? (
-        <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-card">
-          <div className="w-8 h-8 border-2 border-slate-200 border-t-[#00B386] rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-xs font-mono text-slate-500">Loading custom stocks data & live performance...</p>
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-card">
+          <div className="space-y-4">
+            <div className="flex items-center justify-center gap-3 py-6">
+              <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
+              <span className="text-xs font-medium text-slate-600">Loading custom stocks data & live performance...</span>
+            </div>
+            {/* Skeleton Table Rows */}
+            <div className="space-y-2 animate-pulse">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <div key={n} className="h-12 bg-slate-100/70 rounded-xl w-full" />
+              ))}
+            </div>
+          </div>
         </div>
       ) : stocks.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-card space-y-4 max-w-lg mx-auto my-8">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200/80 flex items-center justify-center text-emerald-600 mx-auto">
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-card space-y-6 max-w-2xl mx-auto my-6">
+          <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200/80 flex items-center justify-center text-emerald-600 mx-auto shadow-xs">
             <Star className="w-7 h-7 fill-emerald-500/20 text-emerald-600" />
           </div>
-          <div>
-            <h2 className="text-base font-bold text-slate-900">No Custom Stocks Added Yet</h2>
-            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-              Build your customized tracking list by searching for any NSE equity symbol. Track real-time prices, 4 calculated performance metrics, and export multi-sheet Excel workbooks.
+          <div className="space-y-1.5">
+            <h2 className="text-base font-bold text-slate-900">Your Custom Watchlist is Empty</h2>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Add any NSE stock to monitor real-time prices, 4 custom performance indicators (Market Performance, Premarket, Recovery from Low, Distance from High), and generate multi-sheet Excel reports.
             </p>
           </div>
-          <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#00B386] hover:bg-[#009b74] text-white text-xs font-semibold shadow-sm transition cursor-pointer"
-          >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>Add Your First Stock</span>
-          </button>
+
+          {/* Quick Add Suggestions */}
+          <div className="pt-2 border-t border-slate-100">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">
+              Quick Add Popular Blue-Chips
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {POPULAR_SUGGESTIONS.map((item) => (
+                <button
+                  key={item.symbol}
+                  onClick={() => handleAddStock(item.symbol, item.name)}
+                  disabled={isAdding}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 border border-slate-200 text-xs font-semibold text-slate-700 transition cursor-pointer disabled:opacity-50 shadow-2xs"
+                >
+                  <Plus className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+                  <span>{item.symbol}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#00B386] hover:bg-[#009b74] text-white text-xs font-semibold shadow-xs shadow-emerald-500/20 transition cursor-pointer"
+            >
+              <Search className="w-4 h-4" />
+              <span>Search & Add Other Stocks</span>
+            </button>
+          </div>
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-card">
@@ -441,6 +539,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                     </div>
                   </th>
 
+                  {/* 4 Performance Indicators */}
                   <th onClick={() => handleSort("market_performance")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden md:table-cell">
                     <div className="flex items-center justify-end gap-1">
                       <span>Mkt Perf</span>
@@ -469,9 +568,30 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                     </div>
                   </th>
 
-                  <th onClick={() => handleSort("day_range_pos")} className="py-3 px-4 text-center cursor-pointer hover:text-slate-900 transition min-w-[150px]">
-                    <div className="flex items-center justify-center gap-1.5">
-                      <span>Day Range (L/H)</span>
+                  <th onClick={() => handleSort("open")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden sm:table-cell">
+                    <div className="flex items-center justify-end gap-1">
+                      <span>Open</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    </div>
+                  </th>
+
+                  <th onClick={() => handleSort("high")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden md:table-cell">
+                    <div className="flex items-center justify-end gap-1">
+                      <span>High</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    </div>
+                  </th>
+
+                  <th onClick={() => handleSort("low")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden md:table-cell">
+                    <div className="flex items-center justify-end gap-1">
+                      <span>Low</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    </div>
+                  </th>
+
+                  <th onClick={() => handleSort("day_range_pos")} className="py-3 px-4 cursor-pointer hover:text-slate-900 transition min-w-[130px]">
+                    <div className="flex items-center justify-between gap-1">
+                      <span>Day Range</span>
                       <ArrowUpDown className="w-3 h-3 text-slate-400" />
                     </div>
                   </th>
@@ -483,16 +603,16 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                     </div>
                   </th>
 
-                  <th onClick={() => handleSort("turnover")} className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition hidden lg:table-cell">
+                  <th onClick={() => handleSort("turnover_cr")} className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition hidden lg:table-cell">
                     <div className="flex items-center justify-end gap-1.5">
-                      <span>Turnover (₹ Cr)</span>
+                      <span>Turnover</span>
                       <ArrowUpDown className="w-3 h-3 text-slate-400" />
                     </div>
                   </th>
 
-                  <th onClick={() => handleSort("year_range_pos")} className="py-3 px-4 text-center cursor-pointer hover:text-slate-900 transition min-w-[150px]">
-                    <div className="flex items-center justify-center gap-1.5">
-                      <span>52-Week Range</span>
+                  <th onClick={() => handleSort("year_range_pos")} className="py-3 px-4 cursor-pointer hover:text-slate-900 transition min-w-[140px]">
+                    <div className="flex items-center justify-between gap-1">
+                      <span>52W Range</span>
                       <ArrowUpDown className="w-3 h-3 text-slate-400" />
                     </div>
                   </th>
@@ -649,7 +769,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                       {/* Premarket */}
                       <td className="py-3 px-3 text-right font-mono hidden lg:table-cell">
                         {premarket !== undefined && premarket !== null ? (
-                          <span className={premarket > 0 ? "text-emerald-600" : premarket < 0 ? "text-rose-600" : "text-slate-500"}>
+                          <span className={premarket > 0 ? "text-emerald-600 font-semibold" : premarket < 0 ? "text-rose-600 font-semibold" : "text-slate-500"}>
                             {premarket > 0 ? "+" : ""}{premarket.toFixed(2)}
                           </span>
                         ) : "-"}
@@ -658,7 +778,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                       {/* Recover from Low */}
                       <td className="py-3 px-3 text-right font-mono hidden xl:table-cell">
                         {recLow !== undefined && recLow !== null ? (
-                          <span className={recLow > 0 ? "text-emerald-600" : "text-slate-500"}>
+                          <span className={recLow > 0 ? "text-emerald-600 font-semibold" : "text-slate-500"}>
                             +{recLow.toFixed(2)}
                           </span>
                         ) : "-"}
@@ -667,14 +787,29 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                       {/* Distance from High */}
                       <td className="py-3 px-3 text-right font-mono hidden xl:table-cell">
                         {distHigh !== undefined && distHigh !== null ? (
-                          <span className={distHigh < 0 ? "text-rose-600" : "text-slate-500"}>
+                          <span className={distHigh < 0 ? "text-rose-600 font-semibold" : "text-slate-500"}>
                             {distHigh.toFixed(2)}
                           </span>
                         ) : "-"}
                       </td>
 
-                      {/* Day Range */}
-                      <td className="py-3 px-4 min-w-[150px]">
+                      {/* Open */}
+                      <td className="py-3 px-3 text-right font-mono text-slate-700 hidden sm:table-cell">
+                        {stock.open ? `₹${stock.open.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"}
+                      </td>
+
+                      {/* High */}
+                      <td className="py-3 px-3 text-right font-mono text-slate-700 hidden md:table-cell">
+                        {stock.high ? `₹${stock.high.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"}
+                      </td>
+
+                      {/* Low */}
+                      <td className="py-3 px-3 text-right font-mono text-slate-700 hidden md:table-cell">
+                        {stock.low ? `₹${stock.low.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"}
+                      </td>
+
+                      {/* Day Range Bar */}
+                      <td className="py-3 px-4 min-w-[140px]">
                         <div className="space-y-1">
                           <div className="flex justify-between text-[10px] font-mono text-slate-500">
                             <span>₹{low.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</span>
@@ -860,8 +995,48 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                   );
                 })
               ) : (
-                <div className="p-8 text-center text-xs text-slate-400">
-                  <p>Type any company name or NSE equity symbol to see results.</p>
+                <div className="p-3 space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2">
+                    Popular Indian Stocks
+                  </p>
+                  <div className="space-y-1">
+                    {POPULAR_SUGGESTIONS.map((item) => {
+                      const alreadyAdded = stocks.some((s) => s.symbol === item.symbol);
+                      return (
+                        <div
+                          key={item.symbol}
+                          className="p-2.5 flex items-center justify-between hover:bg-slate-50 rounded-xl transition"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-lg bg-emerald-50 border border-emerald-200/80 flex items-center justify-center font-bold text-[11px] text-emerald-800 font-mono flex-shrink-0">
+                              {item.symbol.slice(0, 2)}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-xs text-slate-900 font-mono">{item.symbol}</span>
+                                <span className="text-[9px] px-1 py-0.2 rounded bg-slate-100 text-slate-500">
+                                  {item.industry}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-400 truncate max-w-xs">{item.name}</p>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => handleAddStock(item.symbol, item.name)}
+                            disabled={alreadyAdded || isAdding}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 ${
+                              alreadyAdded
+                                ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                                : "bg-emerald-50 hover:bg-emerald-100 text-[#00B386] border border-emerald-200/80"
+                            }`}
+                          >
+                            {alreadyAdded ? "Added" : isAdding ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Plus className="w-3 h-3 stroke-[2.5]" /> Add</>}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
