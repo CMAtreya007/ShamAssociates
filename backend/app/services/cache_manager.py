@@ -155,6 +155,10 @@ class HybridMultiTierCache:
             except Exception:
                 pass
 
+    def clear(self, prefix: Optional[str] = None) -> None:
+        """Alias for invalidate() to support standard cache clear calls."""
+        self.invalidate(prefix)
+
     async def _invalidate_redis(self, prefix: Optional[str] = None) -> None:
         """Asynchronously flushes Redis keys matching prefix."""
         if not self._redis_connected or not self._redis_client:

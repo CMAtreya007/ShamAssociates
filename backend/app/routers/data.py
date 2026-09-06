@@ -535,7 +535,10 @@ async def get_custom_stocks_data(
     """Returns custom watchlist overview table with 4 calculated performance metrics and corporate action catalysts.
     Optimized for sub-millisecond cached responses and parallel batch fetching.
     """
-    if not date:
+    if not isinstance(username, str) or not username:
+        username = "admin"
+
+    if not date or not isinstance(date, str):
         q_date = await db.execute(select(Nifty50Daily.date).order_by(desc(Nifty50Daily.date)).limit(1))
         date = q_date.scalars().first() or dt_date.today().strftime("%Y-%m-%d")
 
@@ -764,6 +767,9 @@ async def add_custom_stock(
     db: AsyncSession = Depends(get_db)
 ):
     """Adds a stock to the user's custom watchlist, pre-fetching live quote details."""
+    if not isinstance(username, str) or not username:
+        username = "admin"
+
     symbol = req.symbol.upper().strip()
     if not symbol:
         raise HTTPException(status_code=400, detail="Symbol cannot be empty.")
@@ -808,7 +814,7 @@ async def add_custom_stock(
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to add custom stock: {str(e)}")
 
-    ram_cache.clear()
+    ram_cache.invalidate("custom_stocks")
     return {
         "success": True,
         "message": f"Successfully added {symbol} to custom stocks.",
@@ -823,7 +829,10 @@ async def remove_custom_stock(
     db: AsyncSession = Depends(get_db)
 ):
     """Removes a stock from the user's custom watchlist."""
-    symbol = symbol.upper().strip()
+    if not isinstance(username, str) or not username:
+        username = "admin"
+
+    symbol = str(symbol).upper().strip()
     q = await db.execute(
         select(CustomStockWatchlist).where(CustomStockWatchlist.username == username, CustomStockWatchlist.symbol == symbol)
     )
@@ -839,7 +848,7 @@ async def remove_custom_stock(
 
     await db.delete(item)
     await db.commit()
-    ram_cache.clear()
+    ram_cache.invalidate("custom_stocks")
     return {"success": True, "message": f"Successfully removed {symbol} from custom stocks."}
 
 @router.get("/search-symbols", response_model=List[SymbolSearchResult])
