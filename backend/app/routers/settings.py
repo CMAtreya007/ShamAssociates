@@ -137,28 +137,42 @@ async def save_schedule_settings(
         }
     }
 
+class TriggerAutoDownloadRequest(BaseModel):
+    target_date: Optional[str] = None
+    destination_folder: Optional[str] = None
+
 @router.post("/trigger-auto-download")
 async def trigger_immediate_auto_download(
+    request: Request,
+    req: Optional[TriggerAutoDownloadRequest] = None,
     target_date: Optional[str] = None,
+    dest_folder: Optional[str] = None,
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Triggers an immediate export of all Excel workbooks and saves directly to the user's Downloads folder."""
     username = current_user.get("username", "admin")
-    setting = await get_or_create_user_settings(username, db)
+    client_ip = extract_client_ip(request)
+    setting = await get_or_create_user_settings(username, db, client_ip=client_ip)
 
-    target_folder = setting.downloads_folder or DEFAULT_DOWNLOADS_FOLDER
+    t_date = (req.target_date if req and req.target_date else target_date)
+    chosen_dest = (req.destination_folder if req and req.destination_folder else dest_folder) or setting.downloads_folder or DEFAULT_DOWNLOADS_FOLDER
+
+    if chosen_dest and chosen_dest != setting.downloads_folder:
+        setting.downloads_folder = chosen_dest
+        await db.commit()
 
     try:
-        saved_files = await auto_export_to_downloads(target_date, dest_folder=target_folder)
-        setting.last_download_date = target_date or datetime.utcnow().strftime("%Y-%m-%d")
+        saved_files = await auto_export_to_downloads(t_date, dest_folder=chosen_dest)
+        setting.last_download_date = t_date or datetime.utcnow().strftime("%Y-%m-%d")
         await db.commit()
 
         return {
             "success": True,
-            "message": f"Successfully exported {len(saved_files)} files to {target_folder}",
+            "message": f"Successfully exported {len(saved_files)} files to {chosen_dest}",
             "saved_files": saved_files,
-            "destination_folder": target_folder
+            "destination_folder": chosen_dest
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to auto-download files: {str(e)}")
+

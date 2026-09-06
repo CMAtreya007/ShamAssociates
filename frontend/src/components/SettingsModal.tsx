@@ -18,8 +18,9 @@ import { toast } from "sonner";
 import { 
   getScheduleSettings, 
   saveScheduleSettings, 
-  triggerImmediateAutoDownload,
-  downloadExportZip 
+  triggerImmediateAutoDownload, 
+  downloadExportZip,
+  setActiveDirectoryHandle 
 } from "../services/api";
 
 interface SettingsModalProps {
@@ -68,6 +69,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     }
   }, [isOpen]);
 
+  const updateAndPersistFolder = (chosenPath: string) => {
+    setDownloadsFolder(chosenPath);
+    localStorage.setItem("nse_auto_download_folder", chosenPath);
+    saveScheduleSettings({
+      auto_download_enabled: autoDownloadEnabled,
+      schedule_times: [scheduleTime],
+      downloads_folder: chosenPath
+    }).catch(console.error);
+  };
+
   const handlePickFolder = async () => {
     try {
       // @ts-ignore
@@ -75,11 +86,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         // @ts-ignore
         const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
         if (dirHandle && dirHandle.name) {
-          const selectedPath = `Downloads/${dirHandle.name}`;
-          setDownloadsFolder(selectedPath);
-          localStorage.setItem("nse_auto_download_folder", selectedPath);
-          toast.success("System Location Selected", {
-            description: `Directory: ${dirHandle.name} (Saved for System IP ${clientIp})`
+          setActiveDirectoryHandle(dirHandle);
+
+          let chosen = dirHandle.name;
+          const base = downloadsFolder || defaultSystemDownloads;
+          if (base && (base.includes("/") || base.includes("\\"))) {
+            const sep = base.includes("\\") ? "\\" : "/";
+            const parts = base.split(sep);
+            parts.pop();
+            const parent = parts.join(sep);
+            chosen = parent ? `${parent}${sep}${dirHandle.name}` : dirHandle.name;
+          } else {
+            chosen = `Downloads/${dirHandle.name}`;
+          }
+
+          updateAndPersistFolder(chosen);
+          toast.success("System Storage Location Updated", {
+            description: `Location: ${chosen} (Saved in Database & LocalStorage)`
           });
         }
       } else if (fileInputRef.current) {
@@ -95,14 +118,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const handleDirectoryInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      // Extract root directory name
       const relativePath = files[0].webkitRelativePath || files[0].name;
       const rootDir = relativePath.split("/")[0] || files[0].name;
-      const chosen = `Downloads/${rootDir}`;
-      setDownloadsFolder(chosen);
-      localStorage.setItem("nse_auto_download_folder", chosen);
-      toast.success("System Location Selected", {
-        description: `Directory: ${rootDir}`
+      
+      let chosen = rootDir;
+      const base = downloadsFolder || defaultSystemDownloads;
+      if (base && (base.includes("/") || base.includes("\\"))) {
+        const sep = base.includes("\\") ? "\\" : "/";
+        const parts = base.split(sep);
+        parts.pop();
+        const parent = parts.join(sep);
+        chosen = parent ? `${parent}${sep}${rootDir}` : rootDir;
+      } else {
+        chosen = `Downloads/${rootDir}`;
+      }
+
+      updateAndPersistFolder(chosen);
+      toast.success("System Storage Location Updated", {
+        description: `Location: ${chosen} (Saved in Database & LocalStorage)`
       });
     }
   };
@@ -131,8 +164,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const handleResetToDefault = () => {
     if (defaultSystemDownloads) {
-      setDownloadsFolder(defaultSystemDownloads);
-      localStorage.setItem("nse_auto_download_folder", defaultSystemDownloads);
+      updateAndPersistFolder(defaultSystemDownloads);
       toast.info("Reset to Default Downloads Folder", {
         description: defaultSystemDownloads
       });
@@ -141,21 +173,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const handleTriggerTestDownload = async () => {
     setIsExporting(true);
-    const toastId = toast.loading("Generating full export bundle and initiating download...");
+    const targetFolder = downloadsFolder || defaultSystemDownloads;
+    const toastId = toast.loading("Generating full export bundle and downloading directly...");
     try {
       const [serverRes, clientRes] = await Promise.allSettled([
-        triggerImmediateAutoDownload(),
+        triggerImmediateAutoDownload(undefined, targetFolder),
         downloadExportZip()
       ]);
 
-      let dest = downloadsFolder || defaultSystemDownloads;
+      let dest = targetFolder;
       if (serverRes.status === "fulfilled" && serverRes.value?.destination_folder) {
         dest = serverRes.value.destination_folder;
       }
 
       toast.success("Auto-Download Completed Successfully", {
         id: toastId,
-        description: `Saved to system directory '${dest}' and downloaded directly to your Downloads folder!`
+        description: `Saved to '${dest}' and downloaded directly without prompts!`
       });
     } catch (err: any) {
       toast.error("Auto-Download Failed", {
@@ -318,14 +351,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   <input
                     type="text"
                     value={downloadsFolder}
-                    onChange={(e) => setDownloadsFolder(e.target.value)}
-                    placeholder={defaultSystemDownloads || "e.g. C:\\Users\\Name\\Downloads\\NSE_Market_Data"}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-emerald-500 pr-24"
+                    onChange={(e) => {
+                      setDownloadsFolder(e.target.value);
+                      localStorage.setItem("nse_auto_download_folder", e.target.value);
+                    }}
+                    onBlur={() => {
+                      if (downloadsFolder) {
+                        saveScheduleSettings({
+                          auto_download_enabled: autoDownloadEnabled,
+                          schedule_times: [scheduleTime],
+                          downloads_folder: downloadsFolder
+                        }).catch(console.error);
+                      }
+                    }}
+                    placeholder={defaultSystemDownloads || "e.g. /root/Downloads/NSE_Market_Data"}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-emerald-500 pr-24 shadow-xs"
                   />
                   <button
                     type="button"
                     onClick={handlePickFolder}
-                    className="absolute right-1.5 top-1.5 px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-[10px] font-semibold text-slate-600 transition cursor-pointer"
+                    className="absolute right-1.5 top-1.5 px-2.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-[10px] font-semibold text-slate-600 transition cursor-pointer border border-slate-200/60"
                   >
                     Browse...
                   </button>

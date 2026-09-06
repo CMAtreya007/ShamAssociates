@@ -236,16 +236,37 @@ export async function saveScheduleSettings(data: {
   return result;
 }
 
-export async function triggerImmediateAutoDownload(targetDate?: string): Promise<{
+let activeFileSystemDirectoryHandle: any = null;
+
+export function setActiveDirectoryHandle(handle: any) {
+  activeFileSystemDirectoryHandle = handle;
+}
+
+export function getActiveDirectoryHandle() {
+  return activeFileSystemDirectoryHandle;
+}
+
+export async function triggerImmediateAutoDownload(targetDate?: string, destinationFolder?: string): Promise<{
   success: boolean;
   message: string;
   saved_files: string[];
   destination_folder: string;
 }> {
-  const url = targetDate 
-    ? `${API_BASE}/settings/trigger-auto-download?target_date=${encodeURIComponent(targetDate)}`
-    : `${API_BASE}/settings/trigger-auto-download`;
-  const res = await authFetch(url, { method: "POST" });
+  let url = `${API_BASE}/settings/trigger-auto-download`;
+  const params = new URLSearchParams();
+  if (targetDate) params.append("target_date", targetDate);
+  if (destinationFolder) params.append("dest_folder", destinationFolder);
+  if (params.toString()) {
+    url += `?${params.toString()}`;
+  }
+  const res = await authFetch(url, { 
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      target_date: targetDate || null,
+      destination_folder: destinationFolder || null
+    })
+  });
   if (!res.ok) throw new Error("Failed to trigger auto-download");
   return res.json();
 }
@@ -350,17 +371,33 @@ export async function downloadExportZip(date?: string, onProgress?: (step: strin
   const exportDate = res.headers.get("X-Export-Date") || date || new Date().toISOString().split("T")[0];
   const filename = `NSE_Market_Data_${exportDate}.zip`;
 
-  if (onProgress) onProgress("Saving file to disk...");
+  if (onProgress) onProgress("Saving file directly to disk...");
 
-  // Standard Web & Electron browser download
+  // 1. If FileSystemDirectoryHandle is available, write directly to local disk folder
+  if (activeFileSystemDirectoryHandle) {
+    try {
+      const fileHandle = await activeFileSystemDirectoryHandle.getFileHandle(filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      console.log(`[FileSystemAccess] Wrote ${filename} directly to chosen system folder`);
+    } catch (fsErr) {
+      console.warn("[FileSystemAccess] Directory write fallback to standard download:", fsErr);
+    }
+  }
+
+  // 2. Standard direct silent browser download
   const downloadUrl = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
+  a.style.display = "none";
   a.href = downloadUrl;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  window.URL.revokeObjectURL(downloadUrl);
-  document.body.removeChild(a);
+  setTimeout(() => {
+    window.URL.revokeObjectURL(downloadUrl);
+    document.body.removeChild(a);
+  }, 300);
 
   return { filename, size: blob.size };
 }
