@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # Frontend Dist Path for unified hosting
     FRONTEND_DIST: Path = BASE_DIR.parent / "frontend" / "dist"
 
+    # Redis & Distributed Caching Settings
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+    ENABLE_REDIS: bool = os.getenv("ENABLE_REDIS", "True").lower() in ("true", "1", "yes")
+
     # Optional Third-Party Fallback Keys
     ALPHA_VANTAGE_API_KEY: str = ""
     UPSTOX_API_KEY: str = ""

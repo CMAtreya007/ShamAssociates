@@ -82,9 +82,12 @@ async def export_full_dataset(
             media_type="application/zip",
             headers={
                 "Content-Disposition": f'attachment; filename="NSE_Market_Data_{export_date}.zip"',
+                "Content-Length": str(file_size),
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "public, max-age=3600, immutable",
                 "X-Export-Date": export_date,
                 "X-Files-Count": str(len(files)),
-                "Access-Control-Expose-Headers": "Content-Disposition, X-Export-Date, X-Files-Count"
+                "Access-Control-Expose-Headers": "Content-Disposition, X-Export-Date, X-Files-Count, Content-Length"
             }
         )
     except Exception as e:
@@ -99,10 +102,16 @@ async def download_file(filename: str):
         raise HTTPException(status_code=404, detail="File not found")
 
     file_path = target_files[0]
+    file_size = os.path.getsize(file_path)
     return FileResponse(
         path=str(file_path),
         filename=file_path.name,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Length": str(file_size),
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600, immutable"
+        }
     )
 
 @router.get("/master/indices")

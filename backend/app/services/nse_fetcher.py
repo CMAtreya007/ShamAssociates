@@ -547,13 +547,13 @@ async def run_market_sync(source: str = "MANUAL", fetch_details: bool = True, ta
                         stocks_saved += 1
                     await db.commit()
 
-            # 3. Deep Ingestion of Secondary Metrics for Nifty 50 Constituents
+            # 3. Deep Ingestion of Secondary Metrics for Nifty 50 Constituents (Parallel Batch)
             details_saved = 0
             if fetch_details and symbols_list:
-                semaphore = asyncio.Semaphore(5)
+                semaphore = asyncio.Semaphore(12)
+                collected_details: List[Dict[str, Any]] = []
 
                 async def fetch_and_save_detail(sym: str):
-                    nonlocal details_saved
                     async with semaphore:
                         try:
                             detail_json = await asyncio.to_thread(fetcher.fetch_stock_details, sym)
@@ -578,66 +578,37 @@ async def run_market_sync(source: str = "MANUAL", fetch_details: bool = True, ta
                                 turnover_val = safe_float(t_info.get("totalTradedValue"))
                                 volume_val = safe_float(t_info.get("totalTradedVolume"))
 
-                                async with AsyncSessionLocal() as db:
-                                    q = await db.execute(
-                                        select(StockDetailDaily).where(
-                                            StockDetailDaily.date == today_str,
-                                            StockDetailDaily.symbol == sym
-                                        )
-                                    )
-                                    existing_detail = q.scalars().first()
-
-                                    if existing_detail:
-                                        if c_name: existing_detail.company_name = c_name
-                                        if industry_name: existing_detail.industry = industry_name
-                                        if isin_val: existing_detail.isin = isin_val
-                                        if deliv_pct_val is not None: existing_detail.delivery_pct = deliv_pct_val
-                                        if face_val is not None: existing_detail.face_value = face_val
-                                        if daily_vol is not None: existing_detail.daily_volatility = daily_vol
-                                        if annual_vol is not None: existing_detail.annual_volatility = annual_vol
-                                        if issued_cap is not None: existing_detail.issued_capital = issued_cap
-                                        if margin_val is not None: existing_detail.applicable_margin = margin_val
-                                        if impact_val is not None: existing_detail.impact_cost = impact_val
-                                        if ffmc_val is not None: existing_detail.free_float_mcap = ffmc_val
-                                        if turnover_val is not None: existing_detail.total_turnover = turnover_val
-                                        if volume_val is not None: existing_detail.total_volume = volume_val
-                                        existing_detail.trade_info = t_info
-                                        existing_detail.price_info = p_info
-                                        existing_detail.security_info = s_info
-                                        existing_detail.order_book = o_book
-                                        existing_detail.meta_data = m_data
-                                    else:
-                                        new_detail = StockDetailDaily(
-                                            date=today_str,
-                                            symbol=sym,
-                                            company_name=c_name,
-                                            industry=industry_name,
-                                            isin=isin_val,
-                                            delivery_pct=deliv_pct_val,
-                                            face_value=face_val,
-                                            daily_volatility=daily_vol,
-                                            annual_volatility=annual_vol,
-                                            issued_capital=issued_cap,
-                                            applicable_margin=margin_val,
-                                            impact_cost=impact_val,
-                                            free_float_mcap=ffmc_val,
-                                            total_turnover=turnover_val,
-                                            total_volume=volume_val,
-                                            trade_info=t_info,
-                                            price_info=p_info,
-                                            security_info=s_info,
-                                            order_book=o_book,
-                                            meta_data=m_data
-                                        )
-                                        db.add(new_detail)
-                                    await db.commit()
-                                    details_saved += 1
-                            await asyncio.sleep(0.15)
+                                collected_details.append({
+                                    "date": today_str,
+                                    "symbol": sym,
+                                    "company_name": c_name,
+                                    "industry": industry_name,
+                                    "isin": isin_val,
+                                    "delivery_pct": deliv_pct_val,
+                                    "face_value": face_val,
+                                    "daily_volatility": daily_vol,
+                                    "annual_volatility": annual_vol,
+                                    "issued_capital": issued_cap,
+                                    "applicable_margin": margin_val,
+                                    "impact_cost": impact_val,
+                                    "free_float_mcap": ffmc_val,
+                                    "total_turnover": turnover_val,
+                                    "total_volume": volume_val,
+                                    "trade_info": t_info,
+                                    "price_info": p_info,
+                                    "security_info": s_info,
+                                    "order_book": o_book,
+                                    "meta_data": m_data
+                                })
                         except Exception as sym_err:
                             logger.warning(f"Error fetching detail for {sym}: {sym_err}")
 
                 tasks = [fetch_and_save_detail(s) for s in symbols_list]
                 await asyncio.gather(*tasks)
+
+                if collected_details:
+                    from app.services.db_manager import DatabaseManager
+                    details_saved = await DatabaseManager.upsert_stock_details_records(collected_details)
 
             # 4. Ingest Market-Wide Corporate Actions, Calendar Events & Announcements
             corp_actions_saved = 0
@@ -743,73 +714,57 @@ async def run_market_sync(source: str = "MANUAL", fetch_details: bool = True, ta
                             )
                             db.add(new_ann)
 
-                    # D. Fetch constituent-specific corporate actions & board meetings for Nifty 50
+                    # D. Fetch constituent-specific corporate actions & board meetings for Nifty 50 (Parallel Batch)
                     if symbols_list:
-                        sem_ca = asyncio.Semaphore(5)
+                        sem_ca = asyncio.Semaphore(12)
+                        collected_actions: List[Dict[str, Any]] = []
 
                         async def fetch_constituent_ca(s_sym: str):
-                            nonlocal corp_actions_saved
                             async with sem_ca:
                                 try:
                                     ca_items = await asyncio.to_thread(fetcher.fetch_stock_corporate_actions, s_sym)
                                     bm_items = await asyncio.to_thread(fetcher.fetch_stock_event_calendar, s_sym)
-                                    async with AsyncSessionLocal() as sub_db:
-                                        for c_it in (ca_items or []):
-                                            c_subj = c_it.get("subject")
-                                            c_ex = c_it.get("exDate") or c_it.get("caBroadcastDate")
-                                            if c_subj:
-                                                act_t, prio = classify_corporate_action(c_subj)
-                                                q_chk = await sub_db.execute(
-                                                    select(CorporateAction).where(
-                                                        CorporateAction.symbol == s_sym,
-                                                        CorporateAction.subject == c_subj,
-                                                        CorporateAction.ex_date == c_ex
-                                                    )
-                                                )
-                                                if not q_chk.scalars().first():
-                                                    sub_db.add(CorporateAction(
-                                                        symbol=s_sym,
-                                                        company_name=c_it.get("comp"),
-                                                        series=c_it.get("series", "EQ"),
-                                                        subject=c_subj,
-                                                        action_type=act_t,
-                                                        ex_date=c_ex,
-                                                        record_date=c_it.get("recDate"),
-                                                        priority_level=prio,
-                                                        raw_data=c_it
-                                                    ))
-                                                    corp_actions_saved += 1
+                                    for c_it in (ca_items or []):
+                                        c_subj = c_it.get("subject")
+                                        c_ex = c_it.get("exDate") or c_it.get("caBroadcastDate")
+                                        if c_subj:
+                                            act_t, prio = classify_corporate_action(c_subj)
+                                            collected_actions.append({
+                                                "symbol": s_sym,
+                                                "company_name": c_it.get("comp"),
+                                                "series": c_it.get("series", "EQ"),
+                                                "subject": c_subj,
+                                                "action_type": act_t,
+                                                "ex_date": c_ex,
+                                                "record_date": c_it.get("recDate"),
+                                                "priority_level": prio,
+                                                "raw_data": c_it
+                                            })
 
-                                        for b_it in (bm_items or []):
-                                            b_purp = b_it.get("purpose") or "Board Meeting"
-                                            b_dt = b_it.get("date")
-                                            act_t, prio = classify_corporate_action(b_purp, b_it.get("bm_desc") or "")
-                                            q_chk_bm = await sub_db.execute(
-                                                select(CorporateAction).where(
-                                                    CorporateAction.symbol == s_sym,
-                                                    CorporateAction.subject == b_purp,
-                                                    CorporateAction.ex_date == b_dt
-                                                )
-                                            )
-                                            if not q_chk_bm.scalars().first():
-                                                sub_db.add(CorporateAction(
-                                                    symbol=s_sym,
-                                                    company_name=b_it.get("company"),
-                                                    series="EQ",
-                                                    subject=b_purp,
-                                                    action_type=act_t,
-                                                    ex_date=b_dt,
-                                                    details=b_it.get("bm_desc"),
-                                                    priority_level=prio,
-                                                    raw_data=b_it
-                                                ))
-                                                corp_actions_saved += 1
-                                        await sub_db.commit()
+                                    for b_it in (bm_items or []):
+                                        b_purp = b_it.get("purpose") or "Board Meeting"
+                                        b_dt = b_it.get("date")
+                                        act_t, prio = classify_corporate_action(b_purp, b_it.get("bm_desc") or "")
+                                        collected_actions.append({
+                                            "symbol": s_sym,
+                                            "company_name": b_it.get("company"),
+                                            "series": "EQ",
+                                            "subject": b_purp,
+                                            "action_type": act_t,
+                                            "ex_date": b_dt,
+                                            "details": b_it.get("bm_desc"),
+                                            "priority_level": prio,
+                                            "raw_data": b_it
+                                        })
                                 except Exception as err:
                                     logger.warning(f"Error fetching constituent CA for {s_sym}: {err}")
 
                         ca_tasks = [fetch_constituent_ca(s) for s in symbols_list]
                         await asyncio.gather(*ca_tasks)
+
+                        if collected_actions:
+                            from app.services.db_manager import DatabaseManager
+                            corp_actions_saved += await DatabaseManager.upsert_corporate_actions_records(collected_actions)
 
                     await db.commit()
             except Exception as ca_err:

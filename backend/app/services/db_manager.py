@@ -193,3 +193,78 @@ class DatabaseManager:
 
             await db.commit()
         return count
+
+    @staticmethod
+    async def upsert_stock_details_records(records: List[Dict[str, Any]]) -> int:
+        """Upserts a list of stock detail analytics records with batch prefetch."""
+        if not records:
+            return 0
+        count = 0
+        dates = list({r.get("date") for r in records if r.get("date")})
+        if not dates:
+            return 0
+
+        async with AsyncSessionLocal() as db:
+            q_existing = await db.execute(
+                select(StockDetailDaily).where(StockDetailDaily.date.in_(dates))
+            )
+            existing_map = {
+                (r.date, (r.symbol or "").upper().strip()): r
+                for r in q_existing.scalars().all()
+            }
+
+            for item in records:
+                d = item.get("date")
+                sym = (item.get("symbol") or "").upper().strip()
+                if not d or not sym:
+                    continue
+
+                existing = existing_map.get((d, sym))
+                if existing:
+                    for k, v in item.items():
+                        if hasattr(existing, k) and v is not None:
+                            setattr(existing, k, v)
+                else:
+                    new_rec = StockDetailDaily(**{k: v for k, v in item.items() if hasattr(StockDetailDaily, k)})
+                    db.add(new_rec)
+                    existing_map[(d, sym)] = new_rec
+                count += 1
+
+            await db.commit()
+        return count
+
+    @staticmethod
+    async def upsert_corporate_actions_records(records: List[Dict[str, Any]]) -> int:
+        """Upserts a list of corporate actions with batch prefetch and deduplication."""
+        if not records:
+            return 0
+        count = 0
+        symbols = list({r.get("symbol") for r in records if r.get("symbol")})
+        if not symbols:
+            return 0
+
+        async with AsyncSessionLocal() as db:
+            q_existing = await db.execute(
+                select(CorporateAction).where(CorporateAction.symbol.in_(symbols))
+            )
+            existing_map = {
+                (r.symbol, (r.subject or "").strip(), (r.ex_date or "").strip()): r
+                for r in q_existing.scalars().all()
+            }
+
+            for item in records:
+                sym = item.get("symbol")
+                subj = (item.get("subject") or "").strip()
+                ex_d = (item.get("ex_date") or "").strip()
+                if not sym or not subj:
+                    continue
+
+                key = (sym, subj, ex_d)
+                if key not in existing_map:
+                    new_ca = CorporateAction(**{k: v for k, v in item.items() if hasattr(CorporateAction, k)})
+                    db.add(new_ca)
+                    existing_map[key] = new_ca
+                    count += 1
+
+            await db.commit()
+        return count

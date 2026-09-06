@@ -35,7 +35,9 @@ async def lifespan(app: FastAPI):
     # Automatically scan for and recover any missing trading days from NSE Archives
     from app.services.historical_backfill import auto_detect_and_backfill_missing_days
     from app.services.excel_exporter import warmup_export_cache
+    from app.services.cache_manager import ram_cache
     import asyncio
+    asyncio.create_task(ram_cache._init_redis())
     asyncio.create_task(auto_detect_and_backfill_missing_days(days_back=14))
     asyncio.create_task(warmup_export_cache())
 
