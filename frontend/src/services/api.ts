@@ -351,7 +351,11 @@ export async function fetchIndices(category: string, date?: string): Promise<Ind
   }, 20000);
 }
 
-export async function downloadExportZip(date?: string, onProgress?: (step: string) => void): Promise<{ filename: string; size: number }> {
+export async function downloadExportZip(
+  date?: string, 
+  onProgress?: (step: string) => void,
+  silentFileSystemOnly: boolean = false
+): Promise<{ filename: string; size: number }> {
   if (onProgress) onProgress("Requesting server to build formatted Excel workbooks...");
   
   const token = tokenGetter();
@@ -366,12 +370,12 @@ export async function downloadExportZip(date?: string, onProgress?: (step: strin
     throw new Error(errorData.detail || "Failed to generate Excel export");
   }
 
-  if (onProgress) onProgress("Parsing and applying conditional formatting...");
+  if (onProgress) onProgress("Generating Excel workbooks package...");
   const blob = await res.blob();
   const exportDate = res.headers.get("X-Export-Date") || date || new Date().toISOString().split("T")[0];
   const filename = `NSE_Market_Data_${exportDate}.zip`;
 
-  if (onProgress) onProgress("Saving file directly to disk...");
+  if (onProgress) onProgress("Saving file directly to chosen folder...");
 
   // 1. If FileSystemDirectoryHandle is available, write directly to local disk folder
   if (activeFileSystemDirectoryHandle) {
@@ -382,11 +386,16 @@ export async function downloadExportZip(date?: string, onProgress?: (step: strin
       await writable.close();
       console.log(`[FileSystemAccess] Wrote ${filename} directly to chosen system folder`);
     } catch (fsErr) {
-      console.warn("[FileSystemAccess] Directory write fallback to standard download:", fsErr);
+      console.warn("[FileSystemAccess] Directory write error:", fsErr);
     }
   }
 
-  // 2. Standard direct silent browser download
+  // 2. If silent write requested (auto-download or Test Save), skip browser anchor click to avoid popup prompts
+  if (silentFileSystemOnly) {
+    return { filename, size: blob.size };
+  }
+
+  // 3. Standard direct silent browser download
   const downloadUrl = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.style.display = "none";

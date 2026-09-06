@@ -808,13 +808,33 @@ async def run_market_sync(source: str = "MANUAL", fetch_details: bool = True, ta
 
             logger.info(f"Sync complete ({status}): {total_rows} total rows (including {corp_actions_saved} catalysts) in {duration}s")
             
-            # Immediately pre-warm the export ZIP cache and clear RAM cache for fresh instant queries
+            # Immediately pre-warm the export ZIP cache and trigger background auto-export to destination folders
             if status in ("SUCCESS", "PARTIAL"):
                 try:
                     from app.services.cache_manager import clear_all_data_caches
                     clear_all_data_caches()
                     from app.services.excel_exporter import warmup_export_cache
                     asyncio.create_task(warmup_export_cache(today_str))
+
+                    # Automatically append to Master Workbooks & Auto-Download to user-chosen system folders
+                    async def auto_download_background():
+                        try:
+                            from app.services.scheduler import auto_export_to_downloads, master_excel_sync, DEFAULT_DOWNLOADS_FOLDER
+                            from app.models import UserSettings
+                            await master_excel_sync.append_daily_data(today_str)
+                            async with AsyncSessionLocal() as db_ad:
+                                q_u = await db_ad.execute(select(UserSettings).where(UserSettings.auto_download_enabled == True))
+                                u_list = q_u.scalars().all()
+                                if u_list:
+                                    for u_s in u_list:
+                                        u_dest = u_s.downloads_folder or DEFAULT_DOWNLOADS_FOLDER
+                                        await auto_export_to_downloads(today_str, dest_folder=u_dest)
+                                else:
+                                    await auto_export_to_downloads(today_str)
+                        except Exception as ad_err:
+                            logger.error(f"Background live auto-download export error: {ad_err}")
+
+                    asyncio.create_task(auto_download_background())
                 except Exception:
                     pass
 

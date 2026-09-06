@@ -20,7 +20,8 @@ import {
   saveScheduleSettings, 
   triggerImmediateAutoDownload, 
   downloadExportZip,
-  setActiveDirectoryHandle 
+  setActiveDirectoryHandle,
+  getActiveDirectoryHandle
 } from "../services/api";
 
 interface SettingsModalProps {
@@ -174,21 +175,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const handleTriggerTestDownload = async () => {
     setIsExporting(true);
     const targetFolder = downloadsFolder || defaultSystemDownloads;
-    const toastId = toast.loading("Generating full export bundle and downloading directly...");
+    const toastId = toast.loading("Saving all workbooks and files to destination folder...");
     try {
-      const [serverRes, clientRes] = await Promise.allSettled([
-        triggerImmediateAutoDownload(undefined, targetFolder),
-        downloadExportZip()
-      ]);
+      const serverRes = await triggerImmediateAutoDownload(undefined, targetFolder);
+
+      // If directory handle exists in browser, also write directly to local file stream silently
+      const handle = getActiveDirectoryHandle();
+      if (handle) {
+        await downloadExportZip(undefined, undefined, true);
+      }
 
       let dest = targetFolder;
-      if (serverRes.status === "fulfilled" && serverRes.value?.destination_folder) {
-        dest = serverRes.value.destination_folder;
+      if (serverRes?.destination_folder) {
+        dest = serverRes.destination_folder;
       }
 
       toast.success("Auto-Download Completed Successfully", {
         id: toastId,
-        description: `Saved to '${dest}' and downloaded directly without prompts!`
+        description: `Saved to '${dest}' with zero prompts!`
       });
     } catch (err: any) {
       toast.error("Auto-Download Failed", {

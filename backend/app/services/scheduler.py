@@ -94,6 +94,24 @@ async def auto_export_to_downloads(target_date: Optional[str] = None, dest_folde
             saved_files.append(str(target_xlsx))
             logger.info(f"Saved Excel workbook to: {target_xlsx}")
 
+    # Copy master workbooks if available
+    try:
+        master_ind = master_excel_sync.get_master_indices_path()
+        if os.path.exists(master_ind):
+            target_master_ind = dest_dir / os.path.basename(master_ind)
+            shutil.copy2(master_ind, target_master_ind)
+            saved_files.append(str(target_master_ind))
+            logger.info(f"Saved Master Indices workbook to: {target_master_ind}")
+
+        master_n50 = master_excel_sync.get_master_nifty50_path()
+        if os.path.exists(master_n50):
+            target_master_n50 = dest_dir / os.path.basename(master_n50)
+            shutil.copy2(master_n50, target_master_n50)
+            saved_files.append(str(target_master_n50))
+            logger.info(f"Saved Master Nifty 50 workbook to: {target_master_n50}")
+    except Exception as master_err:
+        logger.warning(f"Could not copy master workbooks to destination folder: {master_err}")
+
     # Real-time SQLite Audit Log Entry
     try:
         async with AsyncSessionLocal() as db:
