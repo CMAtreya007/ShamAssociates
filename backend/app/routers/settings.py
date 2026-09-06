@@ -25,8 +25,10 @@ class ScheduleSettingsRequest(BaseModel):
     downloads_folder: Optional[str] = Field(None, description="Custom downloads folder path")
     auto_download_mode: Optional[str] = Field("MARKET_SYNC", description="Auto-download trigger mode")
 
-async def get_or_create_user_settings(username: str, db: AsyncSession) -> UserSettings:
-    """Retrieves existing UserSettings or initializes default record with system Downloads folder."""
+from fastapi import APIRouter, HTTPException, Depends, Request
+
+async def get_or_create_user_settings(username: str, db: AsyncSession, client_ip: Optional[str] = None) -> UserSettings:
+    """Retrieves existing UserSettings or initializes default record with system Downloads folder and IP tracking."""
     q = await db.execute(select(UserSettings).where(UserSettings.username == username))
     user_setting = q.scalars().first()
 
@@ -34,6 +36,7 @@ async def get_or_create_user_settings(username: str, db: AsyncSession) -> UserSe
         user_setting = UserSettings(
             username=username,
             downloads_folder=DEFAULT_DOWNLOADS_FOLDER,
+            client_ip=client_ip or "127.0.0.1",
             auto_download_enabled=True,
             schedule_times=["15:45", "16:30", "17:30"],
             auto_download_mode="MARKET_SYNC"
@@ -46,20 +49,36 @@ async def get_or_create_user_settings(username: str, db: AsyncSession) -> UserSe
             await db.rollback()
             q2 = await db.execute(select(UserSettings).where(UserSettings.username == username))
             user_setting = q2.scalars().first() or user_setting
+    elif client_ip and user_setting.client_ip != client_ip:
+        user_setting.client_ip = client_ip
+        try:
+            await db.commit()
+            await db.refresh(user_setting)
+        except Exception:
+            pass
 
     return user_setting
 
+def extract_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "127.0.0.1"
+
 @router.get("/schedule")
 async def get_schedule_settings(
+    request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
-    """Returns current auto-download and scheduler configuration for the authenticated user from SQLite."""
+    """Returns current auto-download and scheduler configuration for the authenticated user and system IP."""
     username = current_user.get("username", "admin")
-    setting = await get_or_create_user_settings(username, db)
+    client_ip = extract_client_ip(request)
+    setting = await get_or_create_user_settings(username, db, client_ip=client_ip)
 
     return {
         "username": username,
+        "client_ip": client_ip,
         "auto_download_enabled": setting.auto_download_enabled,
         "schedule_times": setting.schedule_times or ["15:45", "16:30", "17:30"],
         "downloads_folder": setting.downloads_folder or DEFAULT_DOWNLOADS_FOLDER,
@@ -72,12 +91,14 @@ async def get_schedule_settings(
 @router.post("/schedule")
 async def save_schedule_settings(
     req: ScheduleSettingsRequest,
+    request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
-    """Updates auto-download schedule time, toggle, and downloads directory in SQLite for the authenticated user."""
+    """Updates auto-download schedule time, toggle, and downloads directory in SQLite for user and system IP."""
     username = current_user.get("username", "admin")
-    setting = await get_or_create_user_settings(username, db)
+    client_ip = extract_client_ip(request)
+    setting = await get_or_create_user_settings(username, db, client_ip=client_ip)
 
     clean_times = [t.strip() for t in req.schedule_times if ":" in t]
     if not clean_times:
@@ -88,6 +109,7 @@ async def save_schedule_settings(
     setting.auto_download_enabled = req.auto_download_enabled
     setting.schedule_times = clean_times
     setting.downloads_folder = folder
+    setting.client_ip = client_ip
     if req.auto_download_mode:
         setting.auto_download_mode = req.auto_download_mode
     setting.updated_at = datetime.utcnow()
@@ -104,9 +126,10 @@ async def save_schedule_settings(
 
     return {
         "success": True,
-        "message": f"Updated settings for user '{username}'. Destination: {setting.downloads_folder}",
+        "message": f"Updated settings for user '{username}' on IP {client_ip}. Destination: {setting.downloads_folder}",
         "user_settings": {
             "username": setting.username,
+            "client_ip": setting.client_ip,
             "auto_download_enabled": setting.auto_download_enabled,
             "schedule_times": setting.schedule_times,
             "downloads_folder": setting.downloads_folder,

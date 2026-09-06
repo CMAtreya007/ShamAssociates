@@ -183,6 +183,8 @@ class UserSettings(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     username = Column(String(50), nullable=False, unique=True, index=True)
     downloads_folder = Column(String(500), nullable=False)
+    client_ip = Column(String(100), nullable=True, index=True)
+    system_hostname = Column(String(200), nullable=True)
     auto_download_enabled = Column(Boolean, default=True)
     schedule_times = Column(JSON, default=lambda: ["15:45", "16:30", "17:30"])
     auto_download_mode = Column(String(50), default="MARKET_SYNC")  # REAL_TIME, MARKET_SYNC, SCHEDULED

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   X, 
   Settings, 
@@ -8,7 +8,11 @@ import {
   Save, 
   Play,
   RotateCcw,
-  UserCheck
+  UserCheck,
+  Folder,
+  Laptop,
+  CheckCircle2,
+  HardDrive
 } from "lucide-react";
 import { toast } from "sonner";
 import { 
@@ -25,6 +29,7 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [username, setUsername] = useState<string>("admin");
+  const [clientIp, setClientIp] = useState<string>("127.0.0.1");
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState(true);
   const [scheduleTime, setScheduleTime] = useState("15:45");
   const [downloadsFolder, setDownloadsFolder] = useState("");
@@ -33,18 +38,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       setIsLoading(true);
+      // 1. Check local storage first for instant feedback
+      const localFolder = localStorage.getItem("nse_auto_download_folder");
+      if (localFolder) setDownloadsFolder(localFolder);
+
+      // 2. Load latest from backend SQLite database
       getScheduleSettings()
         .then((res) => {
           if (res.username) setUsername(res.username);
+          if (res.client_ip) setClientIp(res.client_ip);
           setAutoDownloadEnabled(res.auto_download_enabled ?? true);
           if (res.schedule_times && res.schedule_times.length > 0) {
             setScheduleTime(res.schedule_times[0]);
           }
-          setDownloadsFolder(res.downloads_folder || "");
+          const folderToUse = res.downloads_folder || localFolder || res.default_system_downloads || "";
+          setDownloadsFolder(folderToUse);
           setDefaultSystemDownloads(res.default_system_downloads || "");
           setNextRunTime(res.next_run_time);
         })
@@ -55,17 +68,59 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     }
   }, [isOpen]);
 
+  const handlePickFolder = async () => {
+    try {
+      // @ts-ignore
+      if (typeof window !== "undefined" && window.showDirectoryPicker) {
+        // @ts-ignore
+        const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+        if (dirHandle && dirHandle.name) {
+          const selectedPath = `Downloads/${dirHandle.name}`;
+          setDownloadsFolder(selectedPath);
+          localStorage.setItem("nse_auto_download_folder", selectedPath);
+          toast.success("System Location Selected", {
+            description: `Directory: ${dirHandle.name} (Saved for System IP ${clientIp})`
+          });
+        }
+      } else if (fileInputRef.current) {
+        fileInputRef.current.click();
+      }
+    } catch (err: any) {
+      if (err.name !== "AbortError") {
+        if (fileInputRef.current) fileInputRef.current.click();
+      }
+    }
+  };
+
+  const handleDirectoryInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      // Extract root directory name
+      const relativePath = files[0].webkitRelativePath || files[0].name;
+      const rootDir = relativePath.split("/")[0] || files[0].name;
+      const chosen = `Downloads/${rootDir}`;
+      setDownloadsFolder(chosen);
+      localStorage.setItem("nse_auto_download_folder", chosen);
+      toast.success("System Location Selected", {
+        description: `Directory: ${rootDir}`
+      });
+    }
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      const folderToSave = downloadsFolder || defaultSystemDownloads;
+      localStorage.setItem("nse_auto_download_folder", folderToSave);
+
       const res = await saveScheduleSettings({
         auto_download_enabled: autoDownloadEnabled,
         schedule_times: [scheduleTime],
-        downloads_folder: downloadsFolder
+        downloads_folder: folderToSave
       });
       setNextRunTime(res.next_run_time);
       toast.success("Settings Saved in Local Database", {
-        description: `Updated profile '${username}'. Auto-download folder set to: ${downloadsFolder || defaultSystemDownloads}`
+        description: `Stored in backend SQLite & local storage for IP ${clientIp}. Folder: ${folderToSave}`
       });
     } catch (err: any) {
       toast.error("Failed to save settings", { description: err.message });
@@ -77,6 +132,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const handleResetToDefault = () => {
     if (defaultSystemDownloads) {
       setDownloadsFolder(defaultSystemDownloads);
+      localStorage.setItem("nse_auto_download_folder", defaultSystemDownloads);
       toast.info("Reset to Default Downloads Folder", {
         description: defaultSystemDownloads
       });
@@ -114,7 +170,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fadeIn font-sans">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fadeIn font-sans select-none">
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl shadow-modal overflow-hidden">
         
         {/* Header */}
@@ -125,13 +181,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-slate-900">Application Settings & Auto-Download</h2>
+                <h2 className="text-base font-bold text-slate-900">Application Settings & System Storage</h2>
                 <span className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 font-bold uppercase">
                   <UserCheck className="w-3 h-3" />
                   {username}
                 </span>
+                <span className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 font-bold">
+                  <Laptop className="w-3 h-3 text-slate-500" />
+                  IP: {clientIp}
+                </span>
               </div>
-              <p className="text-xs text-slate-500">Configure automated daily downloads, destination folder, and user database preferences</p>
+              <p className="text-xs text-slate-500">Choose custom system location, persist auto-download paths in SQLite & LocalStorage</p>
             </div>
           </div>
 
@@ -158,7 +218,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
                   <FolderDown className="w-4 h-4 text-emerald-600" />
-                  <span>Automated Daily Auto-Download (Real-Time)</span>
+                  <span>Automated Daily Auto-Download (Background Engine)</span>
                 </div>
                 
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -172,9 +232,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </label>
               </div>
 
-              <p className="text-slate-600 leading-relaxed">
-                By default on any login, workbooks are stored in the system's default <strong className="text-slate-900">Downloads</strong> folder. When enabled, the system automatically captures all live data, generates the full 54-row Nifty 50 sheets & indices, and stores the workbooks directly upon post-market close sync.
-              </p>
+              {/* Status Banner */}
+              <div className="p-3 bg-emerald-50/80 border border-emerald-200/80 rounded-xl text-emerald-900 text-xs flex items-start gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <strong>Persistent System Location & Background Runner:</strong> Whenever you log in from this machine (<code className="font-mono text-[11px] font-bold">{clientIp}</code>), your chosen destination is restored automatically. If your browser remains open, the background engine will capture and download market files automatically.
+                </div>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 
@@ -207,34 +271,70 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
               </div>
 
-              {/* Destination Folder Path */}
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+              {/* Destination Folder Path & Interactive System Location Picker */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-700 font-semibold block text-[11px]">
-                    Auto-Download Destination Folder (Per-User Setting):
+                  <span className="text-slate-800 font-bold block text-[11px] flex items-center gap-1.5">
+                    <HardDrive className="w-3.5 h-3.5 text-emerald-600" />
+                    System Storage Location:
                   </span>
-                  {defaultSystemDownloads && (
+                  
+                  <div className="flex items-center gap-2">
+                    {defaultSystemDownloads && (
+                      <button
+                        type="button"
+                        onClick={handleResetToDefault}
+                        className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 font-medium cursor-pointer transition"
+                        title="Reset to default system Downloads folder"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Default</span>
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={handleResetToDefault}
-                      className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-medium cursor-pointer"
-                      title="Reset to default system Downloads folder"
+                      onClick={handlePickFolder}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-emerald-700 text-[11px] font-bold shadow-2xs transition cursor-pointer"
+                      title="Choose custom folder on your system"
                     >
-                      <RotateCcw className="w-3 h-3" />
-                      <span>Use Default Downloads</span>
+                      <Folder className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Choose System Location</span>
                     </button>
-                  )}
+                  </div>
                 </div>
+
+                {/* Hidden input fallback for folder browsing */}
                 <input
-                  type="text"
-                  value={downloadsFolder}
-                  onChange={(e) => setDownloadsFolder(e.target.value)}
-                  placeholder={defaultSystemDownloads || "e.g. C:\\Users\\Name\\Downloads\\NSE_Market_Data"}
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-emerald-500"
+                  ref={fileInputRef}
+                  type="file"
+                  // @ts-ignore
+                  webkitdirectory=""
+                  directory=""
+                  className="hidden"
+                  onChange={handleDirectoryInputChange}
                 />
-                <span className="text-[10px] text-slate-400 block">
-                  Changes made here are permanently stored in the local database for user <strong>{username}</strong>.
-                </span>
+
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={downloadsFolder}
+                    onChange={(e) => setDownloadsFolder(e.target.value)}
+                    placeholder={defaultSystemDownloads || "e.g. C:\\Users\\Name\\Downloads\\NSE_Market_Data"}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-emerald-500 pr-24"
+                  />
+                  <button
+                    type="button"
+                    onClick={handlePickFolder}
+                    className="absolute right-1.5 top-1.5 px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-[10px] font-semibold text-slate-600 transition cursor-pointer"
+                  >
+                    Browse...
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
+                  <span>Saved in Local SQLite database + Persistent Browser LocalStorage.</span>
+                  <span className="font-mono text-emerald-700 font-bold">System IP: {clientIp}</span>
+                </div>
               </div>
 
               {/* Instant Action & Save Buttons */}
@@ -250,7 +350,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   ) : (
                     <Play className="w-3.5 h-3.5 text-emerald-600 fill-emerald-600" />
                   )}
-                  <span>Test Save to Downloads Folder Now</span>
+                  <span>Test Save to Location Now</span>
                 </button>
 
                 <button
@@ -260,7 +360,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-5 py-2 rounded-xl bg-[#00B386] hover:bg-[#009E76] text-white text-xs font-bold shadow-xs transition disabled:opacity-50 cursor-pointer"
                 >
                   {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                  <span>Save to Database</span>
+                  <span>Save Location & Schedule</span>
                 </button>
               </div>
 

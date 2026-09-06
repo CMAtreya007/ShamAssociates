@@ -181,6 +181,7 @@ export async function triggerBackfill(date: string, background: boolean = false)
 
 export interface UserScheduleSettings {
   username?: string;
+  client_ip?: string;
   auto_download_enabled: boolean;
   schedule_times: string[];
   downloads_folder: string;
@@ -193,9 +194,23 @@ export interface UserScheduleSettings {
 export async function getScheduleSettings(): Promise<UserScheduleSettings> {
   return cachedFetch("schedule_settings", async () => {
     const res = await authFetch(`${API_BASE}/settings/schedule`);
-    if (!res.ok) throw new Error("Failed to fetch schedule settings");
-    return res.json();
-  }, 10000);
+    if (!res.ok) {
+      // Fallback to local storage if network glitch
+      const localFolder = typeof window !== "undefined" ? localStorage.getItem("nse_auto_download_folder") : null;
+      return {
+        auto_download_enabled: true,
+        schedule_times: ["15:45", "16:30", "17:30"],
+        downloads_folder: localFolder || "Downloads/NSE_Market_Data",
+        next_run_time: null
+      };
+    }
+    const data: UserScheduleSettings = await res.json();
+    if (typeof window !== "undefined" && data.downloads_folder) {
+      localStorage.setItem("nse_auto_download_folder", data.downloads_folder);
+      localStorage.setItem("nse_auto_download_settings", JSON.stringify(data));
+    }
+    return data;
+  }, 5000);
 }
 
 export async function saveScheduleSettings(data: {
@@ -205,13 +220,20 @@ export async function saveScheduleSettings(data: {
   auto_download_mode?: string;
 }): Promise<{ success: boolean; message: string; user_settings?: any; next_run_time: string | null }> {
   invalidateApiCache("schedule_settings");
+  if (typeof window !== "undefined" && data.downloads_folder) {
+    localStorage.setItem("nse_auto_download_folder", data.downloads_folder);
+  }
   const res = await authFetch(`${API_BASE}/settings/schedule`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("Failed to save schedule settings");
-  return res.json();
+  const result = await res.json();
+  if (typeof window !== "undefined" && result.user_settings) {
+    localStorage.setItem("nse_auto_download_settings", JSON.stringify(result.user_settings));
+  }
+  return result;
 }
 
 export async function triggerImmediateAutoDownload(targetDate?: string): Promise<{

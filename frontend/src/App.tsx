@@ -15,7 +15,8 @@ import {
   fetchNifty50, 
   fetchIndices, 
   triggerManualSync, 
-  triggerBackfill 
+  triggerBackfill,
+  getScheduleSettings
 } from "./services/api";
 import { Loader2 } from "lucide-react";
 
@@ -62,6 +63,70 @@ export function App() {
   });
 
   const displayStocks = (isLatestDate && liveStocks.length > 0) ? liveStocks : stocks;
+
+  // Active Browser Background Auto-Download Runner
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    let isMounted = true;
+    let scheduleInfo = {
+      enabled: true,
+      times: ["15:45", "16:30", "17:30"],
+      folder: localStorage.getItem("nse_auto_download_folder") || ""
+    };
+
+    // 1. Fetch user & system settings from backend SQLite
+    getScheduleSettings().then((res) => {
+      if (!isMounted) return;
+      scheduleInfo = {
+        enabled: res.auto_download_enabled ?? true,
+        times: res.schedule_times || ["15:45", "16:30", "17:30"],
+        folder: res.downloads_folder || localStorage.getItem("nse_auto_download_folder") || ""
+      };
+      if (res.downloads_folder) {
+        localStorage.setItem("nse_auto_download_folder", res.downloads_folder);
+      }
+    }).catch(console.error);
+
+    const executedSlots = new Set<string>();
+
+    // 2. Active Tab Interval (checks every 30 seconds for scheduled IST times)
+    const timer = setInterval(() => {
+      if (!scheduleInfo.enabled) return;
+
+      const now = new Date();
+      // Format current time and date in IST (Asia/Kolkata)
+      const istTimeStr = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Kolkata",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }).format(now);
+
+      const istDateStr = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).format(now);
+
+      const slotKey = `${istDateStr}_${istTimeStr}`;
+
+      if (scheduleInfo.times.includes(istTimeStr) && !executedSlots.has(slotKey)) {
+        executedSlots.add(slotKey);
+        console.log(`[Auto-Download Background Runner] Matching IST time ${istTimeStr}. Triggering download bundle.`);
+        toast.info("Automated Scheduled Download", {
+          description: `Triggered background market export for ${istDateStr} at ${istTimeStr} IST.`
+        });
+        downloadAll(selectedDate || istDateStr);
+      }
+    }, 30000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
+  }, [isAuthenticated, selectedDate, downloadAll]);
 
   // Load Status & Dates
   const loadStatusAndDates = useCallback(async () => {
