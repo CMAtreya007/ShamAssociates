@@ -376,8 +376,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
-                  <span>Saved in Local SQLite database + Persistent Browser LocalStorage.</span>
+                <div className="flex items-center justify-end text-[10px] text-slate-500 pt-0.5">
                   <span className="font-mono text-emerald-700 font-bold">System IP: {clientIp}</span>
                 </div>
               </div>
