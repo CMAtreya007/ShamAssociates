@@ -6,13 +6,24 @@ from sqlalchemy import select, desc, asc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db, AsyncSessionLocal
-from app.models import Nifty50Daily, StockDetailDaily, IndexDaily, CorporateAction, CorporateAnnouncement
+from app.models import (
+    Nifty50Daily, 
+    StockDetailDaily, 
+    IndexDaily, 
+    IndexConstituents,
+    CorporateAction, 
+    CorporateAnnouncement,
+    CustomStockWatchlist
+)
 from app.schemas import (
     Nifty50StockSchema, 
     StockDetailSchema, 
     IndexDailySchema, 
     CorporateActionSchema, 
-    CorporateAnnouncementSchema
+    CorporateAnnouncementSchema,
+    CustomStockAddRequest,
+    CustomStockItemSchema,
+    SymbolSearchResult
 )
 from app.services.nse_fetcher import NSEFetcher, safe_float, classify_corporate_action
 
@@ -514,3 +525,370 @@ async def get_indices_by_category(
 
     ram_cache.set(cache_key, res, ttl=30.0)
     return res
+
+@router.get("/custom-stocks", response_model=List[CustomStockItemSchema])
+async def get_custom_stocks_data(
+    date: Optional[str] = Query(None, description="Trade date in YYYY-MM-DD format"),
+    username: str = Query("admin", description="Username for custom watchlist"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Returns custom watchlist overview table with 4 calculated performance metrics and corporate action catalysts."""
+    if not date:
+        q_date = await db.execute(select(Nifty50Daily.date).order_by(desc(Nifty50Daily.date)).limit(1))
+        date = q_date.scalars().first() or dt_date.today().strftime("%Y-%m-%d")
+
+    cache_key = f"custom_stocks:{username}:{date}"
+    cached = ram_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    # 1. Fetch watchlist items for user
+    q_watch = await db.execute(
+        select(CustomStockWatchlist).where(CustomStockWatchlist.username == username).order_by(asc(CustomStockWatchlist.created_at))
+    )
+    watchlist = q_watch.scalars().all()
+    if not watchlist and username != "admin":
+        q_watch_admin = await db.execute(
+            select(CustomStockWatchlist).where(CustomStockWatchlist.username == "admin").order_by(asc(CustomStockWatchlist.created_at))
+        )
+        watchlist = q_watch_admin.scalars().all()
+
+    if not watchlist:
+        return []
+
+    symbols = [w.symbol.upper().strip() for w in watchlist]
+    names_map = {w.symbol.upper().strip(): w.company_name for w in watchlist}
+    created_map = {w.symbol.upper().strip(): w.created_at for w in watchlist}
+
+    # 2. Check Nifty50Daily table
+    q_n50 = await db.execute(
+        select(Nifty50Daily).where(Nifty50Daily.date == date, Nifty50Daily.symbol.in_(symbols))
+    )
+    n50_map = {s.symbol: s for s in q_n50.scalars().all()}
+
+    # 3. Check StockDetailDaily table
+    q_det = await db.execute(
+        select(StockDetailDaily).where(StockDetailDaily.date == date, StockDetailDaily.symbol.in_(symbols))
+    )
+    det_map = {d.symbol: d for d in q_det.scalars().all()}
+
+    # Check latest date if not found on current date
+    for s in symbols:
+        if s not in det_map and s not in n50_map:
+            q_any = await db.execute(
+                select(StockDetailDaily).where(StockDetailDaily.symbol == s).order_by(desc(StockDetailDaily.date)).limit(1)
+            )
+            any_d = q_any.scalars().first()
+            if any_d:
+                det_map[s] = any_d
+
+    # 4. Load corporate actions for catalysts
+    q_ca = await db.execute(
+        select(CorporateAction).where(CorporateAction.symbol.in_(symbols)).order_by(asc(CorporateAction.priority_level))
+    )
+    all_ca = q_ca.scalars().all()
+    ca_by_symbol = {}
+    for ca in all_ca:
+        ca_by_symbol.setdefault(ca.symbol, []).append({
+            "action_type": ca.action_type,
+            "subject": ca.subject,
+            "ex_date": ca.ex_date,
+            "record_date": ca.record_date,
+            "priority_level": ca.priority_level,
+            "details": ca.details
+        })
+
+    results = []
+    for sym in symbols:
+        n50 = n50_map.get(sym)
+        det = det_map.get(sym)
+        c_name = names_map.get(sym) or (n50.company_name if n50 else (det.company_name if det else sym))
+        
+        ltp = None
+        open_val = None
+        high = None
+        low = None
+        prev_close = None
+        change = None
+        pct_change = None
+        volume = None
+        turnover = None
+        ffmc = None
+        year_high = None
+        year_low = None
+        p30 = None
+        p365 = None
+        near_h = None
+        near_l = None
+        series = "EQ"
+        last_update = None
+
+        if n50:
+            ltp = n50.ltp
+            open_val = n50.open
+            high = n50.high
+            low = n50.low
+            prev_close = n50.previous_close
+            change = n50.change
+            pct_change = n50.pct_change
+            volume = n50.volume
+            turnover = n50.turnover
+            ffmc = n50.ffmc
+            year_high = n50.year_high
+            year_low = n50.year_low
+            p30 = n50.per_change_30d
+            p365 = n50.per_change_365d
+            near_h = n50.near_wkh
+            near_l = n50.near_wkl
+            series = n50.series or "EQ"
+            last_update = n50.last_update_time
+        elif det:
+            p_info = det.price_info if isinstance(det.price_info, dict) else {}
+            t_info = det.trade_info if isinstance(det.trade_info, dict) else {}
+            m_info = det.meta_data if isinstance(det.meta_data, dict) else {}
+            ltp = safe_float(p_info.get("lastPrice") or p_info.get("close") or m_info.get("lastPrice"))
+            open_val = safe_float(p_info.get("open") or m_info.get("open"))
+            high = safe_float(p_info.get("intraDayHighLow", {}).get("max") or p_info.get("high") or m_info.get("dayHigh"))
+            low = safe_float(p_info.get("intraDayHighLow", {}).get("min") or p_info.get("low") or m_info.get("dayLow"))
+            prev_close = safe_float(p_info.get("previousClose") or m_info.get("previousClose"))
+            change = safe_float(p_info.get("change") or m_info.get("change"))
+            pct_change = safe_float(p_info.get("pChange") or m_info.get("pChange"))
+            volume = det.total_volume or safe_float(t_info.get("totalTradedVolume"))
+            turnover = det.total_turnover or safe_float(t_info.get("totalTradedValue"))
+            ffmc = det.free_float_mcap or safe_float(t_info.get("ffmc"))
+            year_high = safe_float(p_info.get("weekHighLow", {}).get("max") or p_info.get("yearHigh"))
+            year_low = safe_float(p_info.get("weekHighLow", {}).get("min") or p_info.get("yearLow"))
+            p30 = safe_float(p_info.get("perChange30d"))
+            p365 = safe_float(p_info.get("perChange365d"))
+            near_h = safe_float(p_info.get("nearWKH"))
+            near_l = safe_float(p_info.get("nearWKL"))
+            series = str(m_info.get("series") or "EQ")
+            last_update = str(m_info.get("lastUpdateTime") or "")
+        else:
+            # On-demand fetch from NSE if missing
+            try:
+                eq_detail = await asyncio.to_thread(fetcher.fetch_stock_details, sym)
+                if eq_detail:
+                    p_info = eq_detail.get("priceInfo") or {}
+                    t_info = eq_detail.get("tradeInfo") or {}
+                    m_info = eq_detail.get("metaData") or {}
+                    c_name = m_info.get("companyName") or c_name
+                    ltp = safe_float(p_info.get("lastPrice") or p_info.get("close"))
+                    open_val = safe_float(p_info.get("open"))
+                    high = safe_float(p_info.get("intraDayHighLow", {}).get("max") or p_info.get("high"))
+                    low = safe_float(p_info.get("intraDayHighLow", {}).get("min") or p_info.get("low"))
+                    prev_close = safe_float(p_info.get("previousClose"))
+                    change = safe_float(p_info.get("change"))
+                    pct_change = safe_float(p_info.get("pChange"))
+                    volume = safe_float(t_info.get("totalTradedVolume"))
+                    turnover = safe_float(t_info.get("totalTradedValue"))
+                    ffmc = safe_float(t_info.get("ffmc"))
+                    year_high = safe_float(p_info.get("weekHighLow", {}).get("max") or p_info.get("yearHigh"))
+                    year_low = safe_float(p_info.get("weekHighLow", {}).get("min") or p_info.get("yearLow"))
+                    p30 = safe_float(p_info.get("perChange30d"))
+                    p365 = safe_float(p_info.get("perChange365d"))
+                    near_h = safe_float(p_info.get("nearWKH"))
+                    near_l = safe_float(p_info.get("nearWKL"))
+                    series = str(m_info.get("series") or "EQ")
+                    last_update = str(m_info.get("lastUpdateTime") or "")
+            except Exception:
+                pass
+
+        # 4 Calculated columns
+        market_perf = round(ltp - prev_close, 2) if (ltp is not None and prev_close is not None) else (round(change, 2) if change is not None else None)
+        premarket = round(open_val - prev_close, 2) if (open_val is not None and prev_close is not None) else None
+        rec_low = round(ltp - low, 2) if (ltp is not None and low is not None) else None
+        dist_high = round(ltp - high, 2) if (ltp is not None and high is not None) else None
+
+        row_item = CustomStockItemSchema(
+            id=None,
+            date=date,
+            symbol=sym,
+            company_name=c_name,
+            series=series,
+            open=open_val,
+            high=high,
+            low=low,
+            previous_close=prev_close,
+            market_performance=market_perf,
+            premarket=premarket,
+            recover_from_low=rec_low,
+            distance_from_high=dist_high,
+            ltp=ltp,
+            change=change,
+            pct_change=pct_change,
+            volume=volume,
+            turnover=turnover,
+            year_high=year_high,
+            year_low=year_low,
+            per_change_30d=p30,
+            per_change_365d=p365,
+            near_wkh=near_h,
+            near_wkl=near_l,
+            ffmc=ffmc,
+            last_update_time=last_update,
+            catalysts=ca_by_symbol.get(sym, []),
+            created_at=created_map.get(sym)
+        )
+        results.append(row_item)
+
+    ram_cache.set(cache_key, results, ttl=20.0)
+    return results
+
+@router.post("/custom-stocks")
+async def add_custom_stock(
+    req: CustomStockAddRequest,
+    username: str = Query("admin", description="Username for custom watchlist"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Adds a stock to the user's custom watchlist and ensures details are fetched."""
+    symbol = req.symbol.upper().strip()
+    if not symbol:
+        raise HTTPException(status_code=400, detail="Symbol cannot be empty.")
+
+    # Check if already exists in watchlist
+    q_chk = await db.execute(
+        select(CustomStockWatchlist).where(CustomStockWatchlist.username == username, CustomStockWatchlist.symbol == symbol)
+    )
+    existing = q_chk.scalars().first()
+    if existing:
+        return {"success": True, "message": f"{symbol} is already in your custom watchlist.", "symbol": symbol}
+
+    # Fetch company name / details if not provided
+    c_name = req.company_name
+    if not c_name:
+        q_n50 = await db.execute(select(Nifty50Daily.company_name).where(Nifty50Daily.symbol == symbol).limit(1))
+        c_name = q_n50.scalars().first()
+        if not c_name:
+            q_det = await db.execute(select(StockDetailDaily.company_name).where(StockDetailDaily.symbol == symbol).limit(1))
+            c_name = q_det.scalars().first()
+
+    # If still not found, fetch live quote info from NSE
+    if not c_name:
+        try:
+            detail_json = await asyncio.to_thread(fetcher.fetch_stock_details, symbol)
+            if detail_json:
+                m_data = detail_json.get("metaData") or {}
+                c_name = m_data.get("companyName")
+        except Exception:
+            pass
+
+    new_item = CustomStockWatchlist(
+        username=username,
+        symbol=symbol,
+        company_name=c_name or symbol
+    )
+    db.add(new_item)
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to add custom stock: {str(e)}")
+
+    ram_cache.clear()
+    return {
+        "success": True,
+        "message": f"Successfully added {symbol} to custom stocks.",
+        "symbol": symbol,
+        "company_name": c_name or symbol
+    }
+
+@router.delete("/custom-stocks/{symbol}")
+async def remove_custom_stock(
+    symbol: str,
+    username: str = Query("admin", description="Username for custom watchlist"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Removes a stock from the user's custom watchlist."""
+    symbol = symbol.upper().strip()
+    q = await db.execute(
+        select(CustomStockWatchlist).where(CustomStockWatchlist.username == username, CustomStockWatchlist.symbol == symbol)
+    )
+    item = q.scalars().first()
+    if not item and username != "admin":
+        q2 = await db.execute(
+            select(CustomStockWatchlist).where(CustomStockWatchlist.username == "admin", CustomStockWatchlist.symbol == symbol)
+        )
+        item = q2.scalars().first()
+
+    if not item:
+        raise HTTPException(status_code=404, detail=f"Stock {symbol} not found in custom watchlist.")
+
+    await db.delete(item)
+    await db.commit()
+    ram_cache.clear()
+    return {"success": True, "message": f"Successfully removed {symbol} from custom stocks."}
+
+@router.get("/search-symbols", response_model=List[SymbolSearchResult])
+async def search_symbols(
+    q: str = Query(..., min_length=1, description="Symbol or company name search query"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Searches stock symbols across local database and Nifty 500 constituents."""
+    query = q.strip().upper()
+    if not query:
+        return []
+
+    cache_key = f"symbol_search:{query}"
+    cached = ram_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    results_dict = {}
+
+    # 1. Search Nifty 50 stocks
+    q_n50 = await db.execute(
+        select(Nifty50Daily.symbol, Nifty50Daily.company_name).where(
+            or_(
+                Nifty50Daily.symbol.ilike(f"%{query}%"),
+                Nifty50Daily.company_name.ilike(f"%{query}%")
+            )
+        ).distinct().limit(20)
+    )
+    for sym, name in q_n50.all():
+        if sym not in results_dict:
+            results_dict[sym] = SymbolSearchResult(symbol=sym, company_name=name, series="EQ", industry=None)
+
+    # 2. Search StockDetailDaily
+    q_det = await db.execute(
+        select(StockDetailDaily.symbol, StockDetailDaily.company_name, StockDetailDaily.industry).where(
+            or_(
+                StockDetailDaily.symbol.ilike(f"%{query}%"),
+                StockDetailDaily.company_name.ilike(f"%{query}%")
+            )
+        ).distinct().limit(20)
+    )
+    for sym, name, ind in q_det.all():
+        if sym not in results_dict:
+            results_dict[sym] = SymbolSearchResult(symbol=sym, company_name=name, series="EQ", industry=ind)
+
+    # 3. Search IndexConstituents
+    q_const = await db.execute(
+        select(IndexConstituents.symbol, IndexConstituents.company_name, IndexConstituents.industry).where(
+            or_(
+                IndexConstituents.symbol.ilike(f"%{query}%"),
+                IndexConstituents.company_name.ilike(f"%{query}%")
+            )
+        ).distinct().limit(20)
+    )
+    for sym, name, ind in q_const.all():
+        if sym not in results_dict:
+            results_dict[sym] = SymbolSearchResult(symbol=sym, company_name=name, series="EQ", industry=ind)
+
+    # 4. Search CorporateAction symbols
+    q_ca = await db.execute(
+        select(CorporateAction.symbol, CorporateAction.company_name).where(
+            or_(
+                CorporateAction.symbol.ilike(f"%{query}%"),
+                CorporateAction.company_name.ilike(f"%{query}%")
+            )
+        ).distinct().limit(20)
+    )
+    for sym, name in q_ca.all():
+        if sym not in results_dict:
+            results_dict[sym] = SymbolSearchResult(symbol=sym, company_name=name, series="EQ", industry=None)
+
+    res_list = list(results_dict.values())[:30]
+    ram_cache.set(cache_key, res_list, ttl=60.0)
+    return res_list
+

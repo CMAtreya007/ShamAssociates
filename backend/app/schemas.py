@@ -161,3 +161,46 @@ class ExportResponse(BaseModel):
     files: List[str]
     zip_path: Optional[str] = None
     total_size_bytes: int = 0
+
+class CustomStockAddRequest(BaseModel):
+    symbol: str
+    company_name: Optional[str] = None
+
+class SymbolSearchResult(BaseModel):
+    symbol: str
+    company_name: Optional[str] = None
+    series: Optional[str] = "EQ"
+    industry: Optional[str] = None
+
+class CustomStockItemSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Optional[int] = None
+    date: Optional[str] = None
+    symbol: str
+    company_name: Optional[str] = None
+    series: Optional[str] = "EQ"
+    open: Optional[float] = None
+    high: Optional[float] = None
+    low: Optional[float] = None
+    previous_close: Optional[float] = None
+    market_performance: Optional[float] = None
+    premarket: Optional[float] = None
+    recover_from_low: Optional[float] = None
+    distance_from_high: Optional[float] = None
+    ltp: Optional[float] = None
+    change: Optional[float] = None
+    pct_change: Optional[float] = None
+    volume: Optional[float] = None
+    turnover: Optional[float] = None
+    year_high: Optional[float] = None
+    year_low: Optional[float] = None
+    per_change_30d: Optional[float] = None
+    per_change_365d: Optional[float] = None
+    near_wkh: Optional[float] = None
+    near_wkl: Optional[float] = None
+    ffmc: Optional[float] = None
+    last_update_time: Optional[str] = None
+    catalysts: Optional[List[Dict[str, Any]]] = None
+    created_at: Optional[datetime] = None
+

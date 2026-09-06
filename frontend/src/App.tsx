@@ -22,6 +22,7 @@ import { Loader2 } from "lucide-react";
 
 // Code-split heavy secondary views and modal dialogs for instant sub-second initial load
 const IndicesView = lazy(() => import("./components/IndicesView").then(m => ({ default: m.IndicesView })));
+const CustomStocksView = lazy(() => import("./components/CustomStocksView").then(m => ({ default: m.CustomStocksView })));
 const CatalystFeed = lazy(() => import("./components/CatalystFeed").then(m => ({ default: m.CatalystFeed })));
 const StockDetailDrawer = lazy(() => import("./components/StockDetailDrawer").then(m => ({ default: m.StockDetailDrawer })));
 const CommandPalette = lazy(() => import("./components/CommandPalette").then(m => ({ default: m.CommandPalette })));
@@ -346,7 +347,7 @@ export function App() {
               isLoading={isLoadingStocks}
             />
 
-            {/* 2. Main Data View (Nifty 50 Grid, Catalysts Feed, or Index Category View) */}
+            {/* 2. Main Data View (Nifty 50 Grid, Custom Stocks, Catalysts Feed, or Index Category View) */}
             {activeView === "nifty50" ? (
               <MarketDataGrid
                 stocks={displayStocks}
@@ -354,6 +355,19 @@ export function App() {
                 onSelectStock={(sym) => setSelectedStockSymbol(sym)}
                 priceFlashMap={priceFlashMap}
               />
+            ) : activeView === "custom_stocks" ? (
+              <Suspense fallback={
+                <div className="p-12 flex flex-col items-center justify-center gap-3 bg-white rounded-2xl border border-slate-200/80 shadow-card">
+                  <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
+                  <span className="text-xs text-slate-500 font-medium">Loading Custom Watchlist Stocks...</span>
+                </div>
+              }>
+                <CustomStocksView
+                  selectedDate={selectedDate}
+                  onSelectStock={(sym) => setSelectedStockSymbol(sym)}
+                  priceFlashMap={priceFlashMap}
+                />
+              </Suspense>
             ) : activeView === "catalysts" ? (
               <Suspense fallback={
                 <div className="p-12 flex flex-col items-center justify-center gap-3 bg-white rounded-2xl border border-slate-200/80 shadow-card">

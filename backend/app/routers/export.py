@@ -93,6 +93,42 @@ async def export_full_dataset(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate Excel export: {str(e)}")
 
+@router.api_route("/custom-stocks", methods=["GET", "POST"])
+async def export_custom_stocks(
+    date: Optional[str] = Query(None, description="Trade date to export in YYYY-MM-DD format"),
+    username: str = Query("admin", description="Username for custom stock watchlist"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Generates and downloads the multi-sheet Custom Stocks Excel workbook."""
+    resolved_date = await resolve_last_synced_nse_trade_date(db, date)
+    if not resolved_date:
+        resolved_date = dt_date.today().strftime("%Y-%m-%d")
+
+    export_dir = Path(settings.EXPORT_DIR) / resolved_date
+    export_dir.mkdir(parents=True, exist_ok=True)
+    custom_file = export_dir / f"custom_stocks_{resolved_date}.xlsx"
+
+    from app.services.excel_exporter import build_custom_stocks_workbook
+    await build_custom_stocks_workbook(resolved_date, str(custom_file), username=username)
+
+    if not custom_file.exists():
+        raise HTTPException(status_code=500, detail="Failed to generate custom stocks workbook.")
+
+    file_size = os.path.getsize(custom_file)
+    return FileResponse(
+        path=str(custom_file),
+        filename=f"custom_stocks_{resolved_date}.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="custom_stocks_{resolved_date}.xlsx"',
+            "Content-Length": str(file_size),
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600, immutable",
+            "X-Export-Date": resolved_date,
+            "Access-Control-Expose-Headers": "Content-Disposition, X-Export-Date, Content-Length"
+        }
+    )
+
 @router.get("/download/{filename}")
 async def download_file(filename: str):
     """Direct file download endpoint for individual workbooks."""

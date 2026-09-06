@@ -8,10 +8,11 @@ import {
   CalendarDays,
   History, 
   Settings, 
+  Star,
   ChevronRight
 } from "lucide-react";
 
-export type NavView = "nifty50" | "sectoral" | "thematic" | "strategy" | "broad" | "catalysts";
+export type NavView = "nifty50" | "sectoral" | "thematic" | "strategy" | "broad" | "custom_stocks" | "catalysts";
 
 interface LeftSidebarProps {
   activeView: NavView;
@@ -33,6 +34,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
     { id: "thematic", label: "Thematic Indices", icon: Compass, count: "41" },
     { id: "strategy", label: "Strategy Indices", icon: Target, count: "42" },
     { id: "broad", label: "Broad Market", icon: Layers, count: "18" },
+    { id: "custom_stocks", label: "Custom Stocks", icon: Star, count: "Watchlist", isCustom: true },
   ];
 
   return (

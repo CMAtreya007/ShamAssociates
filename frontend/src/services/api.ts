@@ -8,7 +8,9 @@ import {
   CorporateAnnouncement,
   AuthUser,
   LoginResponseData,
-  AccountPublicInfo
+  AccountPublicInfo,
+  CustomStockItem,
+  SymbolSearchResult
 } from "../types";
 
 export const getApiBaseUrl = (): string => {
@@ -443,3 +445,115 @@ export async function uploadHistoricalExcelFiles(files: File[]): Promise<Ingesti
   }
   return res.json();
 }
+
+// ================= CUSTOM STOCKS APIS =================
+
+export async function fetchCustomStocks(
+  date?: string,
+  username: string = "admin"
+): Promise<CustomStockItem[]> {
+  const cacheKey = `custom_stocks:${username}:${date || "latest"}`;
+  return cachedFetch<CustomStockItem[]>(cacheKey, async () => {
+    let url = `${API_BASE}/data/custom-stocks?username=${encodeURIComponent(username)}`;
+    if (date) {
+      url += `&date=${encodeURIComponent(date)}`;
+    }
+    const res = await authFetch(url);
+    if (!res.ok) throw new Error("Failed to fetch custom stocks");
+    return res.json();
+  }, 15000);
+}
+
+export async function addCustomStock(
+  symbol: string,
+  company_name?: string,
+  username: string = "admin"
+): Promise<{ success: boolean; message: string; symbol: string; company_name?: string }> {
+  invalidateApiCache("custom_stocks");
+  const res = await authFetch(`${API_BASE}/data/custom-stocks?username=${encodeURIComponent(username)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbol, company_name }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to add custom stock" }));
+    throw new Error(err.detail || "Failed to add custom stock");
+  }
+  return res.json();
+}
+
+export async function removeCustomStock(
+  symbol: string,
+  username: string = "admin"
+): Promise<{ success: boolean; message: string }> {
+  invalidateApiCache("custom_stocks");
+  const res = await authFetch(`${API_BASE}/data/custom-stocks/${encodeURIComponent(symbol)}?username=${encodeURIComponent(username)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to remove custom stock" }));
+    throw new Error(err.detail || "Failed to remove custom stock");
+  }
+  return res.json();
+}
+
+export async function searchSymbols(query: string): Promise<SymbolSearchResult[]> {
+  if (!query.trim()) return [];
+  const cacheKey = `search_symbols:${query.trim().toUpperCase()}`;
+  return cachedFetch<SymbolSearchResult[]>(cacheKey, async () => {
+    const res = await authFetch(`${API_BASE}/data/search-symbols?q=${encodeURIComponent(query.trim())}`);
+    if (!res.ok) return [];
+    return res.json();
+  }, 30000);
+}
+
+export async function downloadCustomStocksExcel(
+  date?: string,
+  username: string = "admin"
+): Promise<{ filename: string; size: number }> {
+  const token = tokenGetter();
+  let url = `${API_BASE}/export/custom-stocks?username=${encodeURIComponent(username)}`;
+  if (date) {
+    url += `&date=${encodeURIComponent(date)}`;
+  }
+  if (token) {
+    url += `&token=${encodeURIComponent(token)}`;
+  }
+
+  const res = await authFetch(url, { method: "POST" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Export generation failed" }));
+    throw new Error(err.detail || "Failed to generate Custom Stocks Excel export");
+  }
+
+  const blob = await res.blob();
+  const exportDate = res.headers.get("X-Export-Date") || date || new Date().toISOString().split("T")[0];
+  const filename = `custom_stocks_${exportDate}.xlsx`;
+
+  if (activeFileSystemDirectoryHandle) {
+    try {
+      const fileHandle = await activeFileSystemDirectoryHandle.getFileHandle(filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      console.log(`[FileSystemAccess] Wrote ${filename} directly to chosen system folder`);
+    } catch (fsErr) {
+      console.warn("[FileSystemAccess] Directory write error:", fsErr);
+    }
+  }
+
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.style.display = "none";
+  a.href = downloadUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    window.URL.revokeObjectURL(downloadUrl);
+    document.body.removeChild(a);
+  }, 300);
+
+  return { filename, size: blob.size };
+}
+

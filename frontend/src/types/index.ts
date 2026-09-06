@@ -168,3 +168,41 @@ export interface AccountPublicInfo {
   role: string;
   description: string;
 }
+
+export interface CustomStockItem {
+  id?: number;
+  date?: string;
+  symbol: string;
+  company_name?: string;
+  series?: string;
+  open?: number;
+  high?: number;
+  low?: number;
+  previous_close?: number;
+  market_performance?: number;
+  premarket?: number;
+  recover_from_low?: number;
+  distance_from_high?: number;
+  ltp?: number;
+  change?: number;
+  pct_change?: number;
+  volume?: number;
+  turnover?: number;
+  year_high?: number;
+  year_low?: number;
+  per_change_30d?: number;
+  per_change_365d?: number;
+  near_wkh?: number;
+  near_wkl?: number;
+  ffmc?: number;
+  last_update_time?: string;
+  catalysts?: CorporateAction[];
+  created_at?: string;
+}
+
+export interface SymbolSearchResult {
+  symbol: string;
+  company_name?: string;
+  series?: string;
+  industry?: string;
+}

@@ -94,12 +94,21 @@ async def init_db() -> None:
                     except Exception:
                         pass
         
-            # Migration for fetch_log
-            cursor.execute("PRAGMA table_info(fetch_log)")
-            existing_log_cols = {row[1] for row in cursor.fetchall()}
-            if "corporate_actions_count" not in existing_log_cols:
+            # Migration for corporate_announcements
+            cursor.execute("PRAGMA table_info(corporate_announcements)")
+            existing_ann_cols = {row[1] for row in cursor.fetchall()}
+            if "raw_data" not in existing_ann_cols:
                 try:
-                    cursor.execute("ALTER TABLE fetch_log ADD COLUMN corporate_actions_count INTEGER DEFAULT 0")
+                    cursor.execute("ALTER TABLE corporate_announcements ADD COLUMN raw_data JSON")
+                except Exception:
+                    pass
+
+            # Migration for corporate_actions
+            cursor.execute("PRAGMA table_info(corporate_actions)")
+            existing_act_cols = {row[1] for row in cursor.fetchall()}
+            if "raw_data" not in existing_act_cols:
+                try:
+                    cursor.execute("ALTER TABLE corporate_actions ADD COLUMN raw_data JSON")
                 except Exception:
                     pass
         

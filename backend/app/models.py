@@ -191,3 +191,17 @@ class UserSettings(Base):
     last_download_date = Column(String(20), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class CustomStockWatchlist(Base):
+    __tablename__ = "custom_stocks_watchlist"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    username = Column(String(50), default="admin", index=True)
+    symbol = Column(String(50), nullable=False, index=True)
+    company_name = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("username", "symbol", name="uq_custom_stock_user_symbol"),
+    )
+
