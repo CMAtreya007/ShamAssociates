@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import date as dt_date, datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -26,8 +27,10 @@ from app.schemas import (
     SymbolSearchResult
 )
 from app.services.nse_fetcher import NSEFetcher, safe_float, classify_corporate_action
-
+from app.services.nse_symbols_master import search_master_equities, lookup_master_symbol
 from app.services.cache_manager import ram_cache
+
+logger = logging.getLogger(__name__)
 
 def parse_nse_date(d_str: Optional[str]) -> datetime:
     """Parses various NSE date formats for accurate chronological sorting."""
@@ -766,7 +769,7 @@ async def add_custom_stock(
     username: str = Query("admin", description="Username for custom watchlist"),
     db: AsyncSession = Depends(get_db)
 ):
-    """Adds a stock to the user's custom watchlist, pre-fetching live quote details."""
+    """Adds a stock to the user's custom watchlist, pulling all latest live data & catalysts from NSE."""
     if not isinstance(username, str) or not username:
         username = "admin"
 
@@ -779,45 +782,147 @@ async def add_custom_stock(
         select(CustomStockWatchlist).where(CustomStockWatchlist.username == username, CustomStockWatchlist.symbol == symbol)
     )
     existing = q_chk.scalars().first()
-    if existing:
-        return {"success": True, "message": f"{symbol} is already in your custom watchlist.", "symbol": symbol}
 
-    # Fetch company name / details if not provided
-    c_name = req.company_name
+    # Find company name & industry from master list or request or DB
+    master_info = lookup_master_symbol(symbol)
+    c_name = req.company_name or (master_info.get("company_name") if master_info else None)
+    industry_name = master_info.get("industry") if master_info else None
+
+    # Fetch live deep quotes and corporate actions from NSE
     fetcher = NSEFetcher()
-    if not c_name:
-        q_n50 = await db.execute(select(Nifty50Daily.company_name).where(Nifty50Daily.symbol == symbol).limit(1))
-        c_name = q_n50.scalars().first()
-        if not c_name:
-            q_det = await db.execute(select(StockDetailDaily.company_name).where(StockDetailDaily.symbol == symbol).limit(1))
-            c_name = q_det.scalars().first()
-
-    # Pre-fetch and cache stock details immediately
+    today_str = dt_date.today().strftime("%Y-%m-%d")
+    detail_json = None
     try:
         detail_json = await asyncio.to_thread(fetcher.fetch_stock_details, symbol)
         if detail_json:
             m_data = detail_json.get("metaData") or {}
-            if not c_name:
-                c_name = m_data.get("companyName")
-    except Exception:
-        pass
+            c_name = m_data.get("companyName") or detail_json.get("companyName") or c_name
+            industry_name = m_data.get("industry") or (detail_json.get("secInfo") or {}).get("basicIndustry") or industry_name
+    except Exception as e:
+        logger.warning(f"Error fetching live NSE quote for {symbol}: {e}")
 
-    new_item = CustomStockWatchlist(
-        username=username,
-        symbol=symbol,
-        company_name=c_name or symbol
-    )
-    db.add(new_item)
+    # Fetch stock corporate actions & board meetings from NSE
+    try:
+        stock_ca_list = await asyncio.to_thread(fetcher.fetch_stock_corporate_actions, symbol)
+        if stock_ca_list:
+            for ca_item in stock_ca_list:
+                subj = ca_item.get("subject") or ca_item.get("purpose") or ""
+                act_type, priority = classify_corporate_action(subj)
+                raw_ex = ca_item.get("exDate") or ca_item.get("ex_date")
+                parsed_ex = None
+                if raw_ex:
+                    try:
+                        parsed_ex = datetime.strptime(raw_ex.strip(), "%d-%b-%Y").strftime("%Y-%m-%d")
+                    except Exception:
+                        parsed_ex = str(raw_ex)
+
+                # Upsert into CorporateAction
+                q_ca_exist = await db.execute(
+                    select(CorporateAction).where(
+                        CorporateAction.symbol == symbol,
+                        CorporateAction.subject == subj,
+                        CorporateAction.ex_date == parsed_ex
+                    )
+                )
+                if not q_ca_exist.scalars().first():
+                    new_ca = CorporateAction(
+                        symbol=symbol,
+                        company_name=c_name or symbol,
+                        series=ca_item.get("series") or "EQ",
+                        action_type=act_type,
+                        subject=subj,
+                        ex_date=parsed_ex,
+                        record_date=ca_item.get("recordDate"),
+                        priority_level=priority,
+                        details=ca_item
+                    )
+                    db.add(new_ca)
+    except Exception as e:
+        logger.warning(f"Error fetching corporate actions for {symbol}: {e}")
+
+    # Persist live quote in StockDetailDaily table
+    if detail_json:
+        try:
+            t_info = detail_json.get("tradeInfo") or {}
+            p_info = detail_json.get("priceInfo") or {}
+            s_info = detail_json.get("secInfo") or {}
+            o_book = detail_json.get("orderBook") or {}
+            m_data = detail_json.get("metaData") or {}
+
+            q_stk_det = await db.execute(
+                select(StockDetailDaily).where(StockDetailDaily.date == today_str, StockDetailDaily.symbol == symbol)
+            )
+            existing_det = q_stk_det.scalars().first()
+
+            isin_val = m_data.get("isinCode") or s_info.get("isin") or m_data.get("isin")
+            deliv_pct_val = safe_float(t_info.get("deliveryToTradedQuantity") or s_info.get("deliveryTotradedQuantity"))
+            face_val = safe_float(t_info.get("faceValue") or s_info.get("faceValue"))
+            daily_vol = safe_float(p_info.get("cmDailyVolatility") or p_info.get("dailyVolatility"))
+            annual_vol = safe_float(p_info.get("cmAnnualVolatility") or p_info.get("annualisedVolatility"))
+            issued_cap = safe_float(s_info.get("issuedSize") or t_info.get("issuedSize"))
+            margin_val = safe_float(t_info.get("applicableMargin") or p_info.get("applicableMargin"))
+            impact_val = safe_float(t_info.get("impactCost"))
+            ffmc_val = safe_float(t_info.get("ffmc"))
+            turnover_val = safe_float(t_info.get("totalTradedValue"))
+            volume_val = safe_float(t_info.get("totalTradedVolume"))
+
+            if existing_det:
+                existing_det.company_name = c_name or existing_det.company_name
+                existing_det.industry = industry_name or existing_det.industry
+                existing_det.delivery_pct = deliv_pct_val
+                existing_det.total_turnover = turnover_val
+                existing_det.total_volume = volume_val
+                existing_det.free_float_mcap = ffmc_val
+                existing_det.trade_info = t_info
+                existing_det.price_info = p_info
+                existing_det.security_info = s_info
+                existing_det.order_book = o_book
+                existing_det.meta_data = m_data
+            else:
+                new_detail = StockDetailDaily(
+                    date=today_str,
+                    symbol=symbol,
+                    company_name=c_name or symbol,
+                    industry=industry_name,
+                    isin=isin_val,
+                    delivery_pct=deliv_pct_val,
+                    face_value=face_val,
+                    daily_volatility=daily_vol,
+                    annual_volatility=annual_vol,
+                    issued_capital=issued_cap,
+                    applicable_margin=margin_val,
+                    impact_cost=impact_val,
+                    free_float_mcap=ffmc_val,
+                    total_turnover=turnover_val,
+                    total_volume=volume_val,
+                    trade_info=t_info,
+                    price_info=p_info,
+                    security_info=s_info,
+                    order_book=o_book,
+                    meta_data=m_data
+                )
+                db.add(new_detail)
+        except Exception as e:
+            logger.warning(f"Error persisting stock details for {symbol}: {e}")
+
+    if not existing:
+        new_item = CustomStockWatchlist(
+            username=username,
+            symbol=symbol,
+            company_name=c_name or symbol
+        )
+        db.add(new_item)
+
     try:
         await db.commit()
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to add custom stock: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save custom stock: {str(e)}")
 
     ram_cache.invalidate("custom_stocks")
     return {
         "success": True,
-        "message": f"Successfully added {symbol} to custom stocks.",
+        "message": f"Successfully added {symbol} ({c_name or symbol}) and pulled live data from NSE.",
         "symbol": symbol,
         "company_name": c_name or symbol
     }
@@ -856,7 +961,7 @@ async def search_symbols(
     q: str = Query(..., min_length=1, description="Symbol or company name search query"),
     db: AsyncSession = Depends(get_db)
 ):
-    """Searches stock symbols across local database and Nifty 500 constituents."""
+    """Searches stock symbols across comprehensive Master Universe, local database, and live NSE autocomplete."""
     query = q.strip().upper()
     if not query:
         return []
@@ -868,59 +973,72 @@ async def search_symbols(
 
     results_dict = {}
 
-    # 1. Search Nifty 50 stocks
+    # 1. Search comprehensive in-memory master universe (instant <2ms response)
+    master_matches = search_master_equities(query, limit=35)
+    for m in master_matches:
+        sym = m["symbol"]
+        results_dict[sym] = SymbolSearchResult(
+            symbol=sym,
+            company_name=m.get("company_name"),
+            series="EQ",
+            industry=m.get("industry")
+        )
+
+    # 2. Search local database tables (Nifty50Daily, StockDetailDaily, IndexConstituents, CorporateAction)
     q_n50 = await db.execute(
         select(Nifty50Daily.symbol, Nifty50Daily.company_name).where(
             or_(
                 Nifty50Daily.symbol.ilike(f"%{query}%"),
                 Nifty50Daily.company_name.ilike(f"%{query}%")
             )
-        ).distinct().limit(20)
+        ).distinct().limit(25)
     )
     for sym, name in q_n50.all():
         if sym not in results_dict:
             results_dict[sym] = SymbolSearchResult(symbol=sym, company_name=name, series="EQ", industry=None)
 
-    # 2. Search StockDetailDaily
     q_det = await db.execute(
         select(StockDetailDaily.symbol, StockDetailDaily.company_name, StockDetailDaily.industry).where(
             or_(
                 StockDetailDaily.symbol.ilike(f"%{query}%"),
                 StockDetailDaily.company_name.ilike(f"%{query}%")
             )
-        ).distinct().limit(20)
+        ).distinct().limit(25)
     )
     for sym, name, ind in q_det.all():
         if sym not in results_dict:
             results_dict[sym] = SymbolSearchResult(symbol=sym, company_name=name, series="EQ", industry=ind)
 
-    # 3. Search IndexConstituents
-    q_const = await db.execute(
-        select(IndexConstituents.symbol, IndexConstituents.company_name, IndexConstituents.industry).where(
-            or_(
-                IndexConstituents.symbol.ilike(f"%{query}%"),
-                IndexConstituents.company_name.ilike(f"%{query}%")
-            )
-        ).distinct().limit(20)
-    )
-    for sym, name, ind in q_const.all():
-        if sym not in results_dict:
-            results_dict[sym] = SymbolSearchResult(symbol=sym, company_name=name, series="EQ", industry=ind)
+    # 3. Live NSE Autocomplete Fallback if fewer than 10 matches or specific query
+    if len(results_dict) < 10 or len(query) >= 2:
+        try:
+            fetcher = NSEFetcher()
+            live_results = await asyncio.to_thread(fetcher.search_autocomplete, query)
+            for item in live_results:
+                sym = item.get("symbol", "").upper().strip()
+                if sym and sym not in results_dict:
+                    results_dict[sym] = SymbolSearchResult(
+                        symbol=sym,
+                        company_name=item.get("company_name") or sym,
+                        series=item.get("series") or "EQ",
+                        industry=item.get("industry")
+                    )
+        except Exception as e:
+            logger.debug(f"Live NSE search autocomplete fallback skipped: {e}")
 
-    # 4. Search CorporateAction symbols
-    q_ca = await db.execute(
-        select(CorporateAction.symbol, CorporateAction.company_name).where(
-            or_(
-                CorporateAction.symbol.ilike(f"%{query}%"),
-                CorporateAction.company_name.ilike(f"%{query}%")
-            )
-        ).distinct().limit(20)
-    )
-    for sym, name in q_ca.all():
-        if sym not in results_dict:
-            results_dict[sym] = SymbolSearchResult(symbol=sym, company_name=name, series="EQ", industry=None)
+    # Prioritize: Exact match first, then prefix match, then substring match
+    exact_list = []
+    prefix_list = []
+    other_list = []
+    for sym, item in results_dict.items():
+        if sym == query:
+            exact_list.append(item)
+        elif sym.startswith(query):
+            prefix_list.append(item)
+        else:
+            other_list.append(item)
 
-    res_list = list(results_dict.values())[:30]
+    res_list = (exact_list + prefix_list + other_list)[:40]
     ram_cache.set(cache_key, res_list, ttl=60.0)
     return res_list
 

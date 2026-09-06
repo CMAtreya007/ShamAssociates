@@ -231,16 +231,102 @@ class NSEFetcher:
             return stocks
         return None
 
-    def fetch_stock_details(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Fetches deep trade info, price info, security info for a single stock."""
-        encoded_sym = urllib.parse.quote(symbol)
-        url = f"{self.BASE_URL}/api/NextApi/apiClient/GetQuoteApi?functionName=getSymbolData&marketType=N&series=EQ&symbol={encoded_sym}"
-        referer = f"{self.BASE_URL}/get-quotes/equity?symbol={encoded_sym}"
+    def search_autocomplete(self, query: str) -> List[Dict[str, Any]]:
+        """Searches live symbols and company names on NSE via official autocomplete API."""
+        encoded_q = urllib.parse.quote(query.strip())
+        url = f"{self.BASE_URL}/api/search/autocomplete?q={encoded_q}"
+        referer = f"{self.BASE_URL}/search"
         data = self._get_json(url, referer=referer, retries=2)
-        if data and isinstance(data, dict) and "equityResponse" in data:
-            eq_list = data.get("equityResponse", [])
-            if eq_list and isinstance(eq_list, list):
+        results = []
+        if data and isinstance(data, dict):
+            sym_list = data.get("symbols", [])
+            for item in sym_list:
+                sym = item.get("symbol")
+                name = item.get("symbol_info") or item.get("company_name") or item.get("symbol_des")
+                if sym:
+                    results.append({
+                        "symbol": sym.upper().strip(),
+                        "company_name": name or sym,
+                        "series": item.get("series") or "EQ",
+                        "industry": item.get("industry") or item.get("result_type")
+                    })
+        return results
+
+    def fetch_stock_details(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Fetches deep trade info, price info, security info for a single stock with NextApi & quote-equity fallbacks."""
+        encoded_sym = urllib.parse.quote(symbol.upper().strip())
+        
+        # 1. Try NextApi GetQuoteApi
+        url1 = f"{self.BASE_URL}/api/NextApi/apiClient/GetQuoteApi?functionName=getSymbolData&marketType=N&series=EQ&symbol={encoded_sym}"
+        referer1 = f"{self.BASE_URL}/get-quotes/equity?symbol={encoded_sym}"
+        data1 = self._get_json(url1, referer=referer1, retries=2)
+        if data1 and isinstance(data1, dict) and "equityResponse" in data1:
+            eq_list = data1.get("equityResponse", [])
+            if eq_list and isinstance(eq_list, list) and len(eq_list) > 0:
                 return eq_list[0]
+
+        # 2. Fallback to quote-equity endpoint
+        url2 = f"{self.BASE_URL}/api/quote-equity?symbol={encoded_sym}"
+        referer2 = f"{self.BASE_URL}/get-quotes/equity?symbol={encoded_sym}"
+        data2 = self._get_json(url2, referer=referer2, retries=2)
+        if data2 and isinstance(data2, dict) and ("priceInfo" in data2 or "info" in data2 or "metadata" in data2):
+            info = data2.get("info") or {}
+            metadata = data2.get("metadata") or {}
+            price_info = data2.get("priceInfo") or {}
+            sec_info = data2.get("securityInfo") or {}
+            trade_info = data2.get("tradeInfo") or {}
+            
+            intra_hl = price_info.get("intraDayHighLow") or {}
+            week_hl = price_info.get("weekHighLow") or {}
+            c_name = info.get("companyName") or metadata.get("companyName") or symbol
+
+            return {
+                "priceInfo": {
+                    "lastPrice": price_info.get("lastPrice") or price_info.get("close"),
+                    "change": price_info.get("change"),
+                    "pChange": price_info.get("pChange"),
+                    "previousClose": price_info.get("previousClose"),
+                    "open": price_info.get("open"),
+                    "close": price_info.get("close"),
+                    "vwap": price_info.get("vwap"),
+                    "intraDayHighLow": {
+                        "min": intra_hl.get("min") or price_info.get("low"),
+                        "max": intra_hl.get("max") or price_info.get("high")
+                    },
+                    "weekHighLow": {
+                        "min": week_hl.get("min") or price_info.get("yearLow"),
+                        "max": week_hl.get("max") or price_info.get("yearHigh")
+                    },
+                    "perChange30d": price_info.get("perChange30d"),
+                    "perChange365d": price_info.get("perChange365d"),
+                    "cmDailyVolatility": price_info.get("cmDailyVolatility"),
+                    "cmAnnualVolatility": price_info.get("cmAnnualVolatility")
+                },
+                "tradeInfo": {
+                    "totalTradedVolume": trade_info.get("totalTradedVolume") or trade_info.get("totalVolume"),
+                    "totalTradedValue": trade_info.get("totalTradedValue") or trade_info.get("totalTurnover"),
+                    "ffmc": trade_info.get("ffmc") or trade_info.get("totalMarketCap"),
+                    "deliveryToTradedQuantity": trade_info.get("deliveryToTradedQuantity"),
+                    "faceValue": sec_info.get("faceValue") or trade_info.get("faceValue"),
+                    "issuedSize": sec_info.get("issuedSize")
+                },
+                "secInfo": {
+                    "basicIndustry": info.get("industry") or sec_info.get("basicIndustry"),
+                    "isin": info.get("isin") or metadata.get("isinCode"),
+                    "faceValue": sec_info.get("faceValue"),
+                    "issuedSize": sec_info.get("issuedSize")
+                },
+                "metaData": {
+                    "companyName": c_name,
+                    "symbol": info.get("symbol") or metadata.get("symbol") or symbol,
+                    "series": metadata.get("series") or "EQ",
+                    "isinCode": metadata.get("isinCode") or info.get("isin"),
+                    "industry": info.get("industry"),
+                    "lastUpdateTime": metadata.get("lastUpdateTime")
+                },
+                "companyName": c_name
+            }
+
         return None
 
     def fetch_market_corporate_actions(self) -> List[Dict[str, Any]]:
