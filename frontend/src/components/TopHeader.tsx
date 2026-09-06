@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 import { 
   Download, 
   Search, 
@@ -71,28 +72,40 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
     return () => clearInterval(timer);
   }, []);
 
+  const isMarketOpen = marketStatus.toUpperCase().includes("OPEN") || (status?.adaptive_sync?.is_market_open ?? false);
+  const syncInterval = status?.adaptive_sync?.interval_label?.split(" ")[0] || "10m";
+
   return (
-    <header className="h-16 border-b border-slate-200 bg-white px-6 flex items-center justify-between gap-4 select-none sticky top-0 z-30 shadow-sm">
+    <header className="w-full h-16 border-b border-slate-200/80 bg-white/95 backdrop-blur-md px-3 sm:px-5 lg:px-6 flex items-center justify-between gap-2 sm:gap-3 lg:gap-4 select-none sticky top-0 z-30 shadow-xs">
       
       {/* 1. Left: Brand & Live IST Clock */}
-      <div className="flex items-center gap-6">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#00B386] to-teal-400 flex items-center justify-center text-white shadow-sm shadow-emerald-500/20">
-            <TrendingUp className="w-5 h-5 stroke-[2.5]" />
+      <div className="flex items-center gap-2.5 sm:gap-4 shrink-0">
+        <motion.div 
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.3 }}
+          className="flex items-center gap-2.5"
+        >
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-[#00B386] to-teal-400 flex items-center justify-center text-white shadow-sm shadow-emerald-500/20 shrink-0">
+            <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
           </div>
-          <div>
-            <div className="flex items-center gap-1.5 leading-none">
-              <span className="font-bold text-base tracking-tight text-slate-900 font-sans">NSE Pulse</span>
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-[#00B386] border border-emerald-200/60 font-mono">
+          <div className="leading-tight">
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-sm sm:text-base tracking-tight text-slate-900 font-sans">
+                NSE Pulse
+              </span>
+              <span className="text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-[#00B386] border border-emerald-200/60 font-mono">
                 LIVE
               </span>
             </div>
-            <span className="text-[11px] text-slate-500 font-medium">Institutional Market Terminal</span>
+            <span className="text-[10px] sm:text-[11px] text-slate-400 font-medium hidden xl:inline">
+              Institutional Terminal
+            </span>
           </div>
-        </div>
+        </motion.div>
 
         {/* Live IST Market Clock */}
-        <div className="hidden lg:flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-50 border border-slate-200 text-xs font-mono text-slate-600">
+        <div className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-xs font-mono text-slate-600">
           <Clock className="w-3.5 h-3.5 text-slate-400" />
           <span className="text-slate-400">IST:</span>
           <span className="font-semibold text-slate-800">{istTime || "12:10:36 am"}</span>
@@ -100,77 +113,68 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       </div>
 
       {/* 2. Center: Global Search Trigger (⌘K) */}
-      <div className="flex-1 max-w-xs md:max-w-sm lg:max-w-md mx-2 sm:mx-4 hidden md:block">
-        <button
+      <div className="flex-1 max-w-[140px] sm:max-w-xs md:max-w-sm lg:max-w-md mx-1 sm:mx-2">
+        <motion.button
+          whileHover={{ scale: 1.01 }}
+          whileTap={{ scale: 0.99 }}
           type="button"
           onClick={onOpenCommand}
-          title="Search all stocks, indices, and commands (⌘K or Ctrl+K)"
-          className="w-full flex items-center justify-between px-3.5 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 text-xs text-slate-500 transition shadow-inner-sm group cursor-pointer active:scale-[0.99]"
+          title="Search stocks, indices, and commands (⌘K or Ctrl+K)"
+          className="w-full flex items-center justify-between px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 text-xs text-slate-500 transition shadow-inner-xs group cursor-pointer"
         >
-          <div className="flex items-center gap-2.5 truncate">
-            <Search className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition flex-shrink-0" />
-            <span className="text-slate-500 font-medium truncate">Search stocks, indices, commands...</span>
+          <div className="flex items-center gap-2 truncate">
+            <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 group-hover:text-emerald-600 transition shrink-0" />
+            <span className="text-slate-500 font-medium truncate text-[11px] sm:text-xs">
+              <span className="hidden sm:inline">Search stocks, indices...</span>
+              <span className="inline sm:hidden">Search...</span>
+            </span>
           </div>
-          <kbd className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-white text-slate-500 border border-slate-200 shadow-2xs flex-shrink-0 ml-2">
+          <kbd className="hidden sm:inline-block text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-white text-slate-500 border border-slate-200 shadow-2xs shrink-0 ml-1.5">
             ⌘K
           </kbd>
-        </button>
+        </motion.button>
       </div>
 
-      {/* Mobile Search Icon */}
-      <div className="block md:hidden">
-        <button
-          type="button"
-          onClick={onOpenCommand}
-          title="Search (⌘K)"
-          className="p-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 transition cursor-pointer"
-        >
-          <Search className="w-4 h-4 text-slate-500" />
-        </button>
-      </div>
-
-      {/* 3. Right: Live Pill, Date Picker, Import Excel, Audit Logs, Auto-Sync, Export & Profile */}
-      <div className="flex items-center gap-2.5">
+      {/* 3. Right Controls & Actions Bar */}
+      <div className="flex items-center gap-1.5 sm:gap-2 lg:gap-2.5 shrink-0">
         
-        {/* Real-time Live Stream & Market Status Pill */}
-        <div className="hidden sm:flex items-center gap-2">
+        {/* Real-time Stream Live Ticker Pill */}
+        <div className="hidden lg:flex items-center">
           <div 
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-xs font-medium font-mono shadow-2xs"
-            title={`Real-time WebSocket Live Feed Active. Last Tick: ${lastTickTime || new Date().toISOString().replace('T', ' ').slice(0, 19)}`}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50/90 border border-emerald-200/80 text-emerald-800 text-[11px] font-medium font-mono"
+            title={`Real-time WebSocket Live Feed. Last Tick: ${lastTickTime || "Active"}`}
           >
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-[#00B386]"></span>
             </span>
-            <span className="font-bold">LIVE TICKER</span>
-            <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase tracking-wider ${
-              marketStatus.includes("OPEN")
-                ? "bg-emerald-200/80 text-emerald-900"
-                : "bg-slate-200 text-slate-700"
+            <span className="font-bold text-[10px] tracking-wide">TICKER</span>
+            <span className={`text-[9px] px-1 py-0.2 rounded font-bold uppercase ${
+              isMarketOpen ? "bg-emerald-200 text-emerald-900" : "bg-slate-200 text-slate-700"
             }`}>
-              {marketStatus.includes("OPEN") ? "OPEN" : "STANDBY"}
+              {isMarketOpen ? "OPEN" : "STANDBY"}
             </span>
           </div>
         </div>
 
-        {/* Date Selector & Historical Calendar Picker */}
-        <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-xl p-1 text-xs text-slate-600 hover:border-slate-300 transition">
-          <div className="flex items-center gap-1 px-2 py-0.5">
-            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+        {/* Date Selector & Historical Calendar Backfill Picker */}
+        <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl p-0.5 text-xs text-slate-600 hover:border-slate-300 transition">
+          <div className="flex items-center gap-1 px-1.5 sm:px-2 py-0.5">
+            <Calendar className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400 shrink-0" />
             <select
               value={selectedDate}
               onChange={(e) => onDateChange(e.target.value)}
-              className="bg-transparent text-slate-800 font-mono font-semibold focus:outline-none cursor-pointer text-xs pr-1"
+              className="bg-transparent text-slate-800 font-mono font-semibold focus:outline-none cursor-pointer text-[11px] sm:text-xs pr-0.5"
             >
               {availableDates.map((d) => (
-                <option key={d} value={d} className="bg-white text-slate-800">
+                <option key={d} value={d} className="bg-white text-slate-800 font-mono">
                   {d}
                 </option>
               ))}
             </select>
           </div>
 
-          <div className="relative pl-1 border-l border-slate-200 flex items-center" title="Pick any past trading date to backfill from NSE Archives">
+          <div className="relative pl-0.5 border-l border-slate-200 flex items-center" title="Pick historical date from calendar">
             <input
               type="date"
               max={new Date().toISOString().split("T")[0]}
@@ -178,95 +182,104 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               onChange={(e) => {
                 if (e.target.value) onDateChange(e.target.value);
               }}
-              className="w-7 h-7 opacity-0 absolute inset-0 cursor-pointer z-10"
+              className="w-6 h-6 opacity-0 absolute inset-0 cursor-pointer z-10"
             />
             <button
               type="button"
               className="p-1 text-slate-500 hover:text-emerald-700 rounded transition cursor-pointer"
-              title="Pick historical date from calendar"
             >
-              <CalendarDays className="w-3.5 h-3.5 text-emerald-600" />
+              <CalendarDays className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-600" />
             </button>
           </div>
         </div>
 
         {/* Import Excel Action */}
         {onOpenUpload && (
-          <button
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
             type="button"
             onClick={onOpenUpload}
-            title="Import & Auto-Classify Historical Excel Sheets"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 transition text-xs font-medium cursor-pointer"
+            title="Import Historical Excel Files"
+            className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 transition text-xs font-medium cursor-pointer"
           >
-            <UploadCloud className="w-4 h-4 text-emerald-600" />
-            <span className="hidden md:inline">Import Excel</span>
-          </button>
+            <UploadCloud className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <span className="hidden xl:inline text-[11px]">Import</span>
+          </motion.button>
         )}
 
-        {/* Audit Logs Action */}
-        <button
+        {/* Ingestion Audit Logs Action */}
+        <motion.button
+          whileHover={{ scale: 1.04 }}
+          whileTap={{ scale: 0.96 }}
           type="button"
           onClick={onOpenLogs}
           title="View Ingestion Audit Logs"
-          className="p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 transition cursor-pointer"
+          className="p-1.5 sm:p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 transition cursor-pointer shrink-0"
         >
-          <History className="w-4 h-4" />
-        </button>
+          <History className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+        </motion.button>
 
-        {/* Auto-Sync Cadence Action */}
-        <button
+        {/* Auto-Sync Trigger */}
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
           type="button"
           onClick={onSync}
           disabled={isSyncing}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 transition disabled:opacity-50 text-xs font-medium font-mono group cursor-pointer"
-          title={`Auto-Sync Cadence: ${status?.adaptive_sync?.interval_label || "10 minutes"} (${status?.adaptive_sync?.is_market_open ? "Market Open" : "Market Closed"}). Click to trigger immediate manual sync.`}
+          className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 transition disabled:opacity-50 text-xs font-medium font-mono cursor-pointer shrink-0"
+          title={`Auto-Sync: ${syncInterval}. Click to sync immediately.`}
         >
-          <RefreshCw className={`w-3.5 h-3.5 text-slate-500 group-hover:text-slate-700 ${isSyncing ? "animate-spin text-emerald-600" : ""}`} />
+          <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${isSyncing ? "animate-spin text-emerald-600" : ""}`} />
           <span className="hidden sm:inline text-[11px]">
-            {status?.adaptive_sync?.interval_label ? `${status.adaptive_sync.interval_label.split(' ')[0]} Auto-Sync` : "10m Auto-Sync"}
+            {syncInterval}
           </span>
-          <span className={`w-1.5 h-1.5 rounded-full ${isSyncing ? "bg-blue-500 animate-ping" : (status?.adaptive_sync?.is_market_open ? "bg-emerald-500" : "bg-amber-400")}`}></span>
-        </button>
+          <span className={`w-1.5 h-1.5 rounded-full ${isSyncing ? "bg-blue-500 animate-ping" : (isMarketOpen ? "bg-emerald-500" : "bg-amber-400")}`}></span>
+        </motion.button>
 
-        {/* Primary Action: "Download All" Signature Emerald Button */}
-        <button
+        {/* Signature Emerald "Download All" Action */}
+        <motion.button
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.96 }}
           type="button"
           onClick={onExport}
           disabled={isExporting || isSyncing}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#00B386] hover:bg-[#009E76] active:scale-95 text-white text-xs font-semibold shadow-sm shadow-emerald-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-gradient-to-r from-[#00B386] to-emerald-600 hover:from-[#009E76] hover:to-emerald-700 text-white text-xs font-semibold shadow-xs shadow-emerald-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shrink-0"
         >
           {isExporting ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
           ) : (
-            <Download className="w-4 h-4 stroke-[2.5]" />
+            <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
           )}
-          <span>Download All</span>
-        </button>
+          <span className="text-[11px] sm:text-xs">Download All</span>
+        </motion.button>
 
-        {/* Authenticated User Profile & Logout Action */}
+        {/* Authenticated User Profile & Logout */}
         {user && (
-          <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
-            <div className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-100/90 border border-slate-200/80">
-              <div className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold uppercase flex-shrink-0">
+          <div className="flex items-center gap-1.5 pl-1.5 sm:pl-2 border-l border-slate-200 shrink-0">
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded-xl bg-slate-100/90 border border-slate-200/80">
+              <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold uppercase shrink-0">
                 {user.username ? user.username.charAt(0) : "A"}
               </div>
-              <div className="hidden lg:flex flex-col text-left leading-none">
-                <span className="text-xs font-bold text-slate-800 truncate max-w-[120px]">{user.name || "Administrator"}</span>
-                <span className="text-[9px] font-mono text-emerald-700 uppercase font-semibold">
-                  {user.role || "admin"}
+              <div className="hidden 2xl:flex flex-col text-left leading-none">
+                <span className="text-[11px] font-bold text-slate-800 truncate max-w-[100px]">{user.name || "Analyst"}</span>
+                <span className="text-[8px] font-mono text-emerald-700 uppercase font-semibold">
+                  {user.role || "user"}
                 </span>
               </div>
             </div>
 
             {onLogout && (
-              <button
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
                 type="button"
                 onClick={onLogout}
-                title="Sign out of testing terminal"
-                className="p-2 rounded-xl bg-slate-100/80 hover:bg-red-50 text-slate-500 hover:text-red-600 border border-slate-200 hover:border-red-200 transition cursor-pointer"
+                title="Sign Out"
+                className="p-1.5 sm:p-2 rounded-xl bg-slate-100/80 hover:bg-red-50 text-slate-500 hover:text-red-600 border border-slate-200 hover:border-red-200 transition cursor-pointer shrink-0"
               >
-                <LogOut className="w-4 h-4" />
-              </button>
+                <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              </motion.button>
             )}
           </div>
         )}
