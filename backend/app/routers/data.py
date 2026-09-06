@@ -723,6 +723,11 @@ async def get_custom_stocks_data(
             if pct_change is None:
                 pct_change = round(((ltp - prev_close) / prev_close) * 100, 2)
 
+        if near_h is None and ltp is not None and year_high is not None and year_high > 0:
+            near_h = round(((ltp - year_high) / year_high) * 100, 2)
+        if near_l is None and ltp is not None and year_low is not None and year_low > 0:
+            near_l = round(((ltp - year_low) / year_low) * 100, 2)
+
         market_perf = round(ltp - prev_close, 2) if (ltp is not None and prev_close is not None) else (round(change, 2) if change is not None else None)
         premarket = round(open_val - prev_close, 2) if (open_val is not None and prev_close is not None) else None
         rec_low = round(ltp - low, 2) if (ltp is not None and low is not None) else None
@@ -769,7 +774,7 @@ async def add_custom_stock(
     username: str = Query("admin", description="Username for custom watchlist"),
     db: AsyncSession = Depends(get_db)
 ):
-    """Adds a stock to the user's custom watchlist, pulling all latest live data & catalysts from NSE."""
+    """Adds a stock to the user's custom watchlist, pulling all latest live data, corporate actions & catalysts from NSE."""
     if not isinstance(username, str) or not username:
         username = "admin"
 
@@ -788,7 +793,7 @@ async def add_custom_stock(
     c_name = req.company_name or (master_info.get("company_name") if master_info else None)
     industry_name = master_info.get("industry") if master_info else None
 
-    # Fetch live deep quotes and corporate actions from NSE
+    # Fetch live deep quotes, trade metrics, and corporate actions from NSE
     fetcher = NSEFetcher()
     today_str = dt_date.today().strftime("%Y-%m-%d")
     detail_json = None
@@ -801,12 +806,14 @@ async def add_custom_stock(
     except Exception as e:
         logger.warning(f"Error fetching live NSE quote for {symbol}: {e}")
 
-    # Fetch stock corporate actions & board meetings from NSE
+    # 1. Ingest stock corporate actions (Dividends, Splits, Bonus, etc.)
     try:
         stock_ca_list = await asyncio.to_thread(fetcher.fetch_stock_corporate_actions, symbol)
         if stock_ca_list:
             for ca_item in stock_ca_list:
                 subj = ca_item.get("subject") or ca_item.get("purpose") or ""
+                if not subj:
+                    continue
                 act_type, priority = classify_corporate_action(subj)
                 raw_ex = ca_item.get("exDate") or ca_item.get("ex_date")
                 parsed_ex = None
@@ -834,13 +841,53 @@ async def add_custom_stock(
                         ex_date=parsed_ex,
                         record_date=ca_item.get("recordDate"),
                         priority_level=priority,
-                        details=ca_item
+                        details=ca_item.get("details") or subj,
+                        raw_data=ca_item
                     )
                     db.add(new_ca)
     except Exception as e:
         logger.warning(f"Error fetching corporate actions for {symbol}: {e}")
 
-    # Persist live quote in StockDetailDaily table
+    # 2. Ingest stock event calendar (Board Meetings & Financial Results)
+    try:
+        stock_events = await asyncio.to_thread(fetcher.fetch_stock_event_calendar, symbol)
+        if stock_events:
+            for ev in stock_events:
+                purpose = ev.get("purpose") or ev.get("subject") or "Board Meeting"
+                ev_date = ev.get("bm_date") or ev.get("eventDate") or ev.get("date")
+                if not purpose:
+                    continue
+                parsed_ev_date = None
+                if ev_date:
+                    try:
+                        parsed_ev_date = datetime.strptime(ev_date.strip(), "%d-%b-%Y").strftime("%Y-%m-%d")
+                    except Exception:
+                        parsed_ev_date = str(ev_date)
+
+                q_ev_exist = await db.execute(
+                    select(CorporateAction).where(
+                        CorporateAction.symbol == symbol,
+                        CorporateAction.subject == purpose,
+                        CorporateAction.ex_date == parsed_ev_date
+                    )
+                )
+                if not q_ev_exist.scalars().first():
+                    new_ev_ca = CorporateAction(
+                        symbol=symbol,
+                        company_name=c_name or symbol,
+                        series=ev.get("series") or "EQ",
+                        action_type="RESULTS" if "RESULT" in purpose.upper() else "BOARD_MEETING",
+                        subject=purpose,
+                        ex_date=parsed_ev_date,
+                        priority_level=2,
+                        details=ev.get("details") or purpose,
+                        raw_data=ev
+                    )
+                    db.add(new_ev_ca)
+    except Exception as e:
+        logger.warning(f"Error fetching event calendar for {symbol}: {e}")
+
+    # 3. Persist complete live quote in StockDetailDaily table
     if detail_json:
         try:
             t_info = detail_json.get("tradeInfo") or {}
@@ -862,17 +909,24 @@ async def add_custom_stock(
             issued_cap = safe_float(s_info.get("issuedSize") or t_info.get("issuedSize"))
             margin_val = safe_float(t_info.get("applicableMargin") or p_info.get("applicableMargin"))
             impact_val = safe_float(t_info.get("impactCost"))
-            ffmc_val = safe_float(t_info.get("ffmc"))
-            turnover_val = safe_float(t_info.get("totalTradedValue"))
-            volume_val = safe_float(t_info.get("totalTradedVolume"))
+            ffmc_val = safe_float(t_info.get("ffmc") or t_info.get("totalMarketCap"))
+            turnover_val = safe_float(t_info.get("totalTradedValue") or t_info.get("totalTurnover"))
+            volume_val = safe_float(t_info.get("totalTradedVolume") or t_info.get("totalVolume"))
 
             if existing_det:
                 existing_det.company_name = c_name or existing_det.company_name
                 existing_det.industry = industry_name or existing_det.industry
-                existing_det.delivery_pct = deliv_pct_val
-                existing_det.total_turnover = turnover_val
-                existing_det.total_volume = volume_val
-                existing_det.free_float_mcap = ffmc_val
+                existing_det.isin = isin_val or existing_det.isin
+                existing_det.delivery_pct = deliv_pct_val if deliv_pct_val is not None else existing_det.delivery_pct
+                existing_det.face_value = face_val if face_val is not None else existing_det.face_value
+                existing_det.daily_volatility = daily_vol if daily_vol is not None else existing_det.daily_volatility
+                existing_det.annual_volatility = annual_vol if annual_vol is not None else existing_det.annual_volatility
+                existing_det.issued_capital = issued_cap if issued_cap is not None else existing_det.issued_capital
+                existing_det.applicable_margin = margin_val if margin_val is not None else existing_det.applicable_margin
+                existing_det.impact_cost = impact_val if impact_val is not None else existing_det.impact_cost
+                existing_det.free_float_mcap = ffmc_val if ffmc_val is not None else existing_det.free_float_mcap
+                existing_det.total_turnover = turnover_val if turnover_val is not None else existing_det.total_turnover
+                existing_det.total_volume = volume_val if volume_val is not None else existing_det.total_volume
                 existing_det.trade_info = t_info
                 existing_det.price_info = p_info
                 existing_det.security_info = s_info

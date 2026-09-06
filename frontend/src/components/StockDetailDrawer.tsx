@@ -58,28 +58,28 @@ export const StockDetailDrawer: React.FC<StockDetailDrawerProps> = ({ symbol, se
   const sInfo = (detail?.security_info || {}) as any;
   const mData = (detail?.meta_data || {}) as any;
 
-  const ltp = tInfo.lastPrice || pInfo.lastPrice || 0;
-  const basePrice = tInfo.basePrice || pInfo.basePrice || ltp;
-  const change = ltp - basePrice;
-  const pctChange = basePrice > 0 ? (change / basePrice) * 100 : 0;
+  const ltp = tInfo.lastPrice || pInfo.lastPrice || pInfo.close || 0;
+  const prevClose = pInfo.previousClose || tInfo.previousClose || pInfo.basePrice || tInfo.basePrice || ltp;
+  const change = pInfo.change != null ? pInfo.change : (ltp - prevClose);
+  const pctChange = pInfo.pChange != null ? pInfo.pChange : (prevClose > 0 ? (change / prevClose) * 100 : 0);
   const isPos = pctChange >= 0;
 
   const delivPct = detail?.delivery_pct !== undefined && detail?.delivery_pct !== null
     ? detail.delivery_pct
-    : (tInfo.deliveryToTradedQuantity || sInfo.deliveryTotradedQuantity || 0);
+    : (tInfo.deliveryToTradedQuantity || sInfo.deliveryTotradedQuantity || tInfo.secWiseDelivx?.deliveryToTradedQuantity || 0);
 
-  const ffmcCr = (detail?.free_float_mcap ? detail.free_float_mcap / 10000000.0 : null) || (tInfo.ffmc ? tInfo.ffmc / 10000000.0 : null);
-  const turnoverCr = (detail?.total_turnover ? detail.total_turnover / 10000000.0 : null) || (tInfo.totalTradedValue ? tInfo.totalTradedValue / 10000000.0 : null);
-  const totalMcapCr = tInfo.totalMarketCap ? tInfo.totalMarketCap / 10000000.0 : null;
+  const ffmcCr = (detail?.free_float_mcap ? detail.free_float_mcap / 10000000.0 : null) || (tInfo.ffmc ? (tInfo.ffmc > 100000000 ? tInfo.ffmc / 10000000.0 : tInfo.ffmc) : null) || (tInfo.totalMarketCap ? (tInfo.totalMarketCap > 100000000 ? tInfo.totalMarketCap / 10000000.0 : tInfo.totalMarketCap) : null);
+  const turnoverCr = (detail?.total_turnover ? detail.total_turnover / 10000000.0 : null) || (tInfo.totalTradedValue ? (tInfo.totalTradedValue > 100000000 ? tInfo.totalTradedValue / 10000000.0 : tInfo.totalTradedValue) : null) || (tInfo.totalTurnover ? (tInfo.totalTurnover > 100000000 ? tInfo.totalTurnover / 10000000.0 : tInfo.totalTurnover) : null);
+  const totalMcapCr = tInfo.totalMarketCap ? (tInfo.totalMarketCap > 100000000 ? tInfo.totalMarketCap / 10000000.0 : tInfo.totalMarketCap) : ffmcCr;
 
-  const dHigh = pInfo.intraDayHighLow?.max || pInfo.high || ltp;
-  const dLow = pInfo.intraDayHighLow?.min || pInfo.low || ltp;
-  const yHigh = pInfo.yearHigh || tInfo.yearHigh || 0;
-  const yLow = pInfo.yearLow || tInfo.yearLow || 0;
+  const dHigh = pInfo.intraDayHighLow?.max || pInfo.high || pInfo.dayHigh || ltp;
+  const dLow = pInfo.intraDayHighLow?.min || pInfo.low || pInfo.dayLow || ltp;
+  const yHigh = pInfo.weekHighLow?.max || pInfo.yearHigh || tInfo.yearHigh || 0;
+  const yLow = pInfo.weekHighLow?.min || pInfo.yearLow || tInfo.yearLow || 0;
 
   // Mock mini sparkline intraday data points
   const sparklineData = [
-    { time: "09:15", price: pInfo.open || basePrice * 0.995 },
+    { time: "09:15", price: pInfo.open || prevClose * 0.995 },
     { time: "10:30", price: dLow + (dHigh - dLow) * 0.2 },
     { time: "11:45", price: dLow + (dHigh - dLow) * 0.6 },
     { time: "13:00", price: dLow + (dHigh - dLow) * 0.4 },

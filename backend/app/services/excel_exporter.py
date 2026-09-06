@@ -896,9 +896,9 @@ async def build_custom_stocks_workbook(target_date: str, output_path: str, usern
             prev_close = safe_float(p_info.get("previousClose") or m_info.get("previousClose"))
             change = safe_float(p_info.get("change") or m_info.get("change"))
             pct_change = safe_float(p_info.get("pChange") or m_info.get("pChange"))
-            volume = det.total_volume or safe_float(t_info.get("totalTradedVolume"))
-            turnover = det.total_turnover or safe_float(t_info.get("totalTradedValue"))
-            ffmc = det.free_float_mcap or safe_float(t_info.get("ffmc"))
+            volume = det.total_volume or safe_float(t_info.get("totalTradedVolume") or t_info.get("totalVolume"))
+            turnover = det.total_turnover or safe_float(t_info.get("totalTradedValue") or t_info.get("totalTurnover"))
+            ffmc = det.free_float_mcap or safe_float(t_info.get("ffmc") or t_info.get("totalMarketCap"))
             year_high = safe_float(p_info.get("weekHighLow", {}).get("max") or p_info.get("yearHigh"))
             year_low = safe_float(p_info.get("weekHighLow", {}).get("min") or p_info.get("yearLow"))
             p30 = safe_float(p_info.get("perChange30d"))
@@ -921,9 +921,9 @@ async def build_custom_stocks_workbook(target_date: str, output_path: str, usern
                     prev_close = safe_float(p_info.get("previousClose"))
                     change = safe_float(p_info.get("change"))
                     pct_change = safe_float(p_info.get("pChange"))
-                    volume = safe_float(t_info.get("totalTradedVolume"))
-                    turnover = safe_float(t_info.get("totalTradedValue"))
-                    ffmc = safe_float(t_info.get("ffmc"))
+                    volume = safe_float(t_info.get("totalTradedVolume") or t_info.get("totalVolume"))
+                    turnover = safe_float(t_info.get("totalTradedValue") or t_info.get("totalTurnover"))
+                    ffmc = safe_float(t_info.get("ffmc") or t_info.get("totalMarketCap"))
                     year_high = safe_float(p_info.get("weekHighLow", {}).get("max") or p_info.get("yearHigh"))
                     year_low = safe_float(p_info.get("weekHighLow", {}).get("min") or p_info.get("yearLow"))
                     p30 = safe_float(p_info.get("perChange30d"))
@@ -933,6 +933,17 @@ async def build_custom_stocks_workbook(target_date: str, output_path: str, usern
                     series = str(m_info.get("series") or "EQ")
             except Exception:
                 pass
+
+        if ltp is not None and prev_close is not None and prev_close > 0:
+            if change is None:
+                change = round(ltp - prev_close, 2)
+            if pct_change is None:
+                pct_change = round(((ltp - prev_close) / prev_close) * 100, 2)
+
+        if near_h is None and ltp is not None and year_high is not None and year_high > 0:
+            near_h = round(((ltp - year_high) / year_high) * 100, 2)
+        if near_l is None and ltp is not None and year_low is not None and year_low > 0:
+            near_l = round(((ltp - year_low) / year_low) * 100, 2)
 
         stocks_meta.append({
             "symbol": sym,

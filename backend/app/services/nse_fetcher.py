@@ -252,9 +252,17 @@ class NSEFetcher:
                     })
         return results
 
-    def fetch_stock_details(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Fetches deep trade info, price info, security info for a single stock with NextApi & quote-equity fallbacks."""
+    def fetch_stock_trade_info(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Fetches detailed trade information and security-wise delivery position for a stock."""
         encoded_sym = urllib.parse.quote(symbol.upper().strip())
+        url = f"{self.BASE_URL}/api/quote-equity?symbol={encoded_sym}&section=trade_info"
+        referer = f"{self.BASE_URL}/get-quotes/equity?symbol={encoded_sym}"
+        return self._get_json(url, referer=referer, retries=2)
+
+    def fetch_stock_details(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Fetches deep trade info, price info, security info, valuation ratios, and delivery metrics for a single stock."""
+        clean_sym = symbol.upper().strip()
+        encoded_sym = urllib.parse.quote(clean_sym)
         
         # 1. Try NextApi GetQuoteApi
         url1 = f"{self.BASE_URL}/api/NextApi/apiClient/GetQuoteApi?functionName=getSymbolData&marketType=N&series=EQ&symbol={encoded_sym}"
@@ -263,7 +271,50 @@ class NSEFetcher:
         if data1 and isinstance(data1, dict) and "equityResponse" in data1:
             eq_list = data1.get("equityResponse", [])
             if eq_list and isinstance(eq_list, list) and len(eq_list) > 0:
-                return eq_list[0]
+                eq_res = eq_list[0]
+                # Enrich with calculated fields if missing
+                p_inf = eq_res.get("priceInfo") or {}
+                t_inf = eq_res.get("tradeInfo") or {}
+                m_inf = eq_res.get("metaData") or {}
+                s_inf = eq_res.get("secInfo") or {}
+
+                ltp_val = safe_float(p_inf.get("lastPrice") or p_inf.get("close"))
+                pc_val = safe_float(p_inf.get("previousClose") or p_inf.get("basePrice"))
+                yh_val = safe_float(p_inf.get("weekHighLow", {}).get("max") or p_inf.get("yearHigh"))
+                yl_val = safe_float(p_inf.get("weekHighLow", {}).get("min") or p_inf.get("yearLow"))
+
+                if p_inf.get("nearWKH") is None and ltp_val and yh_val and yh_val > 0:
+                    p_inf["nearWKH"] = round(((ltp_val - yh_val) / yh_val) * 100, 2)
+                if p_inf.get("nearWKL") is None and ltp_val and yl_val and yl_val > 0:
+                    p_inf["nearWKL"] = round(((ltp_val - yl_val) / yl_val) * 100, 2)
+                if p_inf.get("change") is None and ltp_val and pc_val:
+                    p_inf["change"] = round(ltp_val - pc_val, 2)
+                if p_inf.get("pChange") is None and ltp_val and pc_val and pc_val > 0:
+                    p_inf["pChange"] = round(((ltp_val - pc_val) / pc_val) * 100, 2)
+
+                # Ensure company name and industry exist
+                if not m_inf.get("companyName") and eq_res.get("companyName"):
+                    m_inf["companyName"] = eq_res.get("companyName")
+
+                # If delivery percentage is missing, attempt section=trade_info fetch
+                if not t_inf.get("deliveryToTradedQuantity") and not s_inf.get("deliveryTotradedQuantity"):
+                    try:
+                        trade_sec = self.fetch_stock_trade_info(clean_sym)
+                        if trade_sec and isinstance(trade_sec, dict):
+                            sec_dp = trade_sec.get("securityWiseDP") or {}
+                            d_qty = safe_float(sec_dp.get("deliveryQuantity"))
+                            d_pct = safe_float(sec_dp.get("deliveryToTradedQuantity"))
+                            q_trd = safe_float(sec_dp.get("quantityTraded"))
+                            if d_pct is not None:
+                                t_inf["deliveryToTradedQuantity"] = d_pct
+                            if d_qty is not None:
+                                t_inf["deliveryQuantity"] = d_qty
+                            if q_trd is not None:
+                                t_inf["quantityTraded"] = q_trd
+                    except Exception:
+                        pass
+
+                return eq_res
 
         # 2. Fallback to quote-equity endpoint
         url2 = f"{self.BASE_URL}/api/quote-equity?symbol={encoded_sym}"
@@ -275,55 +326,132 @@ class NSEFetcher:
             price_info = data2.get("priceInfo") or {}
             sec_info = data2.get("securityInfo") or {}
             trade_info = data2.get("tradeInfo") or {}
+            industry_info = data2.get("industryInfo") or {}
+            order_book = data2.get("marketDeptOrderBook") or data2.get("orderBook") or data2.get("preOpenMarket") or {}
             
             intra_hl = price_info.get("intraDayHighLow") or {}
             week_hl = price_info.get("weekHighLow") or {}
-            c_name = info.get("companyName") or metadata.get("companyName") or symbol
+            c_name = info.get("companyName") or metadata.get("companyName") or clean_sym
+
+            ltp_val = safe_float(price_info.get("lastPrice") or price_info.get("close"))
+            pc_val = safe_float(price_info.get("previousClose") or price_info.get("basePrice"))
+            op_val = safe_float(price_info.get("open"))
+            hi_val = safe_float(intra_hl.get("max") or price_info.get("high") or price_info.get("dayHigh"))
+            lo_val = safe_float(intra_hl.get("min") or price_info.get("low") or price_info.get("dayLow"))
+            yh_val = safe_float(week_hl.get("max") or price_info.get("yearHigh"))
+            yl_val = safe_float(week_hl.get("min") or price_info.get("yearLow"))
+
+            chg_val = safe_float(price_info.get("change"))
+            if chg_val is None and ltp_val is not None and pc_val is not None:
+                chg_val = round(ltp_val - pc_val, 2)
+
+            pct_val = safe_float(price_info.get("pChange"))
+            if pct_val is None and ltp_val is not None and pc_val is not None and pc_val > 0:
+                pct_val = round(((ltp_val - pc_val) / pc_val) * 100, 2)
+
+            near_wkh = safe_float(price_info.get("nearWKH"))
+            if near_wkh is None and ltp_val is not None and yh_val is not None and yh_val > 0:
+                near_wkh = round(((ltp_val - yh_val) / yh_val) * 100, 2)
+
+            near_wkl = safe_float(price_info.get("nearWKL"))
+            if near_wkl is None and ltp_val is not None and yl_val is not None and yl_val > 0:
+                near_wkl = round(((ltp_val - yl_val) / yl_val) * 100, 2)
+
+            deliv_pct = safe_float(trade_info.get("deliveryToTradedQuantity") or trade_info.get("secWiseDelivx", {}).get("deliveryToTradedQuantity") or sec_info.get("deliveryTotradedQuantity"))
+            deliv_qty = safe_float(trade_info.get("deliveryQuantity") or trade_info.get("secWiseDelivx", {}).get("deliveryQuantity"))
+            qty_trd = safe_float(trade_info.get("quantityTraded") or trade_info.get("secWiseDelivx", {}).get("quantityTraded") or trade_info.get("totalTradedVolume") or trade_info.get("totalVolume"))
+            tot_val = safe_float(trade_info.get("totalTradedValue") or trade_info.get("totalTurnover"))
+            ffmc_val = safe_float(trade_info.get("ffmc") or trade_info.get("totalMarketCap"))
+            tot_mcap = safe_float(trade_info.get("totalMarketCap") or trade_info.get("marketCap"))
+
+            # If delivery info missing, fetch section=trade_info
+            if deliv_pct is None:
+                try:
+                    trade_sec = self.fetch_stock_trade_info(clean_sym)
+                    if trade_sec and isinstance(trade_sec, dict):
+                        sec_dp = trade_sec.get("securityWiseDP") or {}
+                        deliv_pct = safe_float(sec_dp.get("deliveryToTradedQuantity"))
+                        if sec_dp.get("deliveryQuantity"):
+                            deliv_qty = safe_float(sec_dp.get("deliveryQuantity"))
+                        if sec_dp.get("quantityTraded"):
+                            qty_trd = safe_float(sec_dp.get("quantityTraded"))
+                except Exception:
+                    pass
+
+            industry_name = industry_info.get("basicIndustry") or industry_info.get("industry") or info.get("industry") or metadata.get("industry") or sec_info.get("basicIndustry")
+            macro_val = industry_info.get("macro") or sec_info.get("macro")
+            sector_val = industry_info.get("sector") or sec_info.get("sector")
+            isin_val = info.get("isin") or metadata.get("isinCode") or sec_info.get("isin")
+            series_val = metadata.get("series") or (info.get("activeSeries", ["EQ"])[0] if info.get("activeSeries") else "EQ")
+
+            # Valuation metrics
+            pd_sector_pe = safe_float(metadata.get("pdSectorPe") or sec_info.get("pdSectorPe"))
+            pd_symbol_pe = safe_float(metadata.get("pdSymbolPe") or sec_info.get("pdSymbolPe"))
+            pd_sector_ind = metadata.get("pdSectorInd") or sec_info.get("pdSectorInd")
 
             return {
                 "priceInfo": {
-                    "lastPrice": price_info.get("lastPrice") or price_info.get("close"),
-                    "change": price_info.get("change"),
-                    "pChange": price_info.get("pChange"),
-                    "previousClose": price_info.get("previousClose"),
-                    "open": price_info.get("open"),
-                    "close": price_info.get("close"),
-                    "vwap": price_info.get("vwap"),
+                    "lastPrice": ltp_val,
+                    "change": chg_val,
+                    "pChange": pct_val,
+                    "previousClose": pc_val,
+                    "open": op_val,
+                    "close": safe_float(price_info.get("close")),
+                    "vwap": safe_float(price_info.get("vwap")),
+                    "lowerCP": safe_float(price_info.get("lowerCP")),
+                    "upperCP": safe_float(price_info.get("upperCP")),
                     "intraDayHighLow": {
-                        "min": intra_hl.get("min") or price_info.get("low"),
-                        "max": intra_hl.get("max") or price_info.get("high")
+                        "min": lo_val,
+                        "max": hi_val
                     },
                     "weekHighLow": {
-                        "min": week_hl.get("min") or price_info.get("yearLow"),
-                        "max": week_hl.get("max") or price_info.get("yearHigh")
+                        "min": yl_val,
+                        "max": yh_val
                     },
-                    "perChange30d": price_info.get("perChange30d"),
-                    "perChange365d": price_info.get("perChange365d"),
-                    "cmDailyVolatility": price_info.get("cmDailyVolatility"),
-                    "cmAnnualVolatility": price_info.get("cmAnnualVolatility")
+                    "nearWKH": near_wkh,
+                    "nearWKL": near_wkl,
+                    "perChange30d": safe_float(price_info.get("perChange30d")),
+                    "perChange365d": safe_float(price_info.get("perChange365d")),
+                    "cmDailyVolatility": safe_float(price_info.get("cmDailyVolatility")),
+                    "cmAnnualVolatility": safe_float(price_info.get("cmAnnualVolatility"))
                 },
                 "tradeInfo": {
-                    "totalTradedVolume": trade_info.get("totalTradedVolume") or trade_info.get("totalVolume"),
-                    "totalTradedValue": trade_info.get("totalTradedValue") or trade_info.get("totalTurnover"),
-                    "ffmc": trade_info.get("ffmc") or trade_info.get("totalMarketCap"),
-                    "deliveryToTradedQuantity": trade_info.get("deliveryToTradedQuantity"),
-                    "faceValue": sec_info.get("faceValue") or trade_info.get("faceValue"),
-                    "issuedSize": sec_info.get("issuedSize")
+                    "totalTradedVolume": qty_trd,
+                    "totalTradedValue": tot_val,
+                    "ffmc": ffmc_val,
+                    "totalMarketCap": tot_mcap,
+                    "deliveryToTradedQuantity": deliv_pct,
+                    "deliveryQuantity": deliv_qty,
+                    "quantityTraded": qty_trd,
+                    "faceValue": safe_float(sec_info.get("faceValue") or trade_info.get("faceValue")),
+                    "issuedSize": safe_float(sec_info.get("issuedSize") or trade_info.get("issuedSize")),
+                    "impactCost": safe_float(trade_info.get("impactCost")),
+                    "applicableMargin": safe_float(trade_info.get("applicableMargin") or price_info.get("applicableMargin"))
                 },
                 "secInfo": {
-                    "basicIndustry": info.get("industry") or sec_info.get("basicIndustry"),
-                    "isin": info.get("isin") or metadata.get("isinCode"),
-                    "faceValue": sec_info.get("faceValue"),
-                    "issuedSize": sec_info.get("issuedSize")
+                    "basicIndustry": industry_name,
+                    "macro": macro_val,
+                    "sector": sector_val,
+                    "isin": isin_val,
+                    "faceValue": safe_float(sec_info.get("faceValue")),
+                    "issuedSize": safe_float(sec_info.get("issuedSize")),
+                    "listingDate": metadata.get("listingDate") or sec_info.get("listingDate"),
+                    "pdSectorPe": pd_sector_pe,
+                    "pdSymbolPe": pd_symbol_pe,
+                    "pdSectorInd": pd_sector_ind,
+                    "indexList": sec_info.get("indexList") or [pd_sector_ind] if pd_sector_ind else []
                 },
                 "metaData": {
                     "companyName": c_name,
-                    "symbol": info.get("symbol") or metadata.get("symbol") or symbol,
-                    "series": metadata.get("series") or "EQ",
-                    "isinCode": metadata.get("isinCode") or info.get("isin"),
-                    "industry": info.get("industry"),
+                    "symbol": clean_sym,
+                    "series": series_val,
+                    "isinCode": isin_val,
+                    "industry": industry_name,
+                    "isFNOSec": str(info.get("isFNOSec", "false")).lower(),
+                    "listingDate": metadata.get("listingDate"),
                     "lastUpdateTime": metadata.get("lastUpdateTime")
                 },
+                "orderBook": order_book,
                 "companyName": c_name
             }
 
@@ -633,68 +761,77 @@ async def run_market_sync(source: str = "MANUAL", fetch_details: bool = True, ta
                         stocks_saved += 1
                     await db.commit()
 
-            # 3. Deep Ingestion of Secondary Metrics for Nifty 50 Constituents (Parallel Batch)
+            # 3. Deep Ingestion of Secondary Metrics for Nifty 50 & Custom Stocks (Parallel Batch)
             details_saved = 0
-            if fetch_details and symbols_list:
-                semaphore = asyncio.Semaphore(12)
-                collected_details: List[Dict[str, Any]] = []
+            if fetch_details:
+                # Retrieve all custom watchlist symbols to sync alongside Nifty 50
+                custom_syms = []
+                async with AsyncSessionLocal() as db:
+                    q_cust = await db.execute(select(CustomStockWatchlist.symbol).distinct())
+                    custom_syms = [s[0].upper().strip() for s in q_cust.all() if s[0]]
 
-                async def fetch_and_save_detail(sym: str):
-                    async with semaphore:
-                        try:
-                            detail_json = await asyncio.to_thread(fetcher.fetch_stock_details, sym)
-                            if detail_json:
-                                t_info = detail_json.get("tradeInfo") or {}
-                                p_info = detail_json.get("priceInfo") or {}
-                                s_info = detail_json.get("secInfo") or {}
-                                o_book = detail_json.get("orderBook") or {}
-                                m_data = detail_json.get("metaData") or {}
+                all_symbols_to_detail = list(dict.fromkeys(symbols_list + custom_syms))
 
-                                c_name = m_data.get("companyName")
-                                industry_name = s_info.get("basicIndustry") or m_data.get("industry")
-                                isin_val = m_data.get("isinCode") or s_info.get("isin") or m_data.get("isin")
-                                deliv_pct_val = safe_float(t_info.get("deliveryToTradedQuantity") or s_info.get("deliveryTotradedQuantity"))
-                                face_val = safe_float(t_info.get("faceValue") or s_info.get("faceValue"))
-                                daily_vol = safe_float(p_info.get("cmDailyVolatility") or p_info.get("dailyVolatility"))
-                                annual_vol = safe_float(p_info.get("cmAnnualVolatility") or p_info.get("annualisedVolatility"))
-                                issued_cap = safe_float(s_info.get("issuedSize") or t_info.get("issuedSize"))
-                                margin_val = safe_float(t_info.get("applicableMargin") or p_info.get("applicableMargin"))
-                                impact_val = safe_float(t_info.get("impactCost"))
-                                ffmc_val = safe_float(t_info.get("ffmc"))
-                                turnover_val = safe_float(t_info.get("totalTradedValue"))
-                                volume_val = safe_float(t_info.get("totalTradedVolume"))
+                if all_symbols_to_detail:
+                    semaphore = asyncio.Semaphore(12)
+                    collected_details: List[Dict[str, Any]] = []
 
-                                collected_details.append({
-                                    "date": today_str,
-                                    "symbol": sym,
-                                    "company_name": c_name,
-                                    "industry": industry_name,
-                                    "isin": isin_val,
-                                    "delivery_pct": deliv_pct_val,
-                                    "face_value": face_val,
-                                    "daily_volatility": daily_vol,
-                                    "annual_volatility": annual_vol,
-                                    "issued_capital": issued_cap,
-                                    "applicable_margin": margin_val,
-                                    "impact_cost": impact_val,
-                                    "free_float_mcap": ffmc_val,
-                                    "total_turnover": turnover_val,
-                                    "total_volume": volume_val,
-                                    "trade_info": t_info,
-                                    "price_info": p_info,
-                                    "security_info": s_info,
-                                    "order_book": o_book,
-                                    "meta_data": m_data
-                                })
-                        except Exception as sym_err:
-                            logger.warning(f"Error fetching detail for {sym}: {sym_err}")
+                    async def fetch_and_save_detail(sym: str):
+                        async with semaphore:
+                            try:
+                                detail_json = await asyncio.to_thread(fetcher.fetch_stock_details, sym)
+                                if detail_json:
+                                    t_info = detail_json.get("tradeInfo") or {}
+                                    p_info = detail_json.get("priceInfo") or {}
+                                    s_info = detail_json.get("secInfo") or {}
+                                    o_book = detail_json.get("orderBook") or {}
+                                    m_data = detail_json.get("metaData") or {}
 
-                tasks = [fetch_and_save_detail(s) for s in symbols_list]
-                await asyncio.gather(*tasks)
+                                    c_name = m_data.get("companyName")
+                                    industry_name = s_info.get("basicIndustry") or m_data.get("industry")
+                                    isin_val = m_data.get("isinCode") or s_info.get("isin") or m_data.get("isin")
+                                    deliv_pct_val = safe_float(t_info.get("deliveryToTradedQuantity") or s_info.get("deliveryTotradedQuantity"))
+                                    face_val = safe_float(t_info.get("faceValue") or s_info.get("faceValue"))
+                                    daily_vol = safe_float(p_info.get("cmDailyVolatility") or p_info.get("dailyVolatility"))
+                                    annual_vol = safe_float(p_info.get("cmAnnualVolatility") or p_info.get("annualisedVolatility"))
+                                    issued_cap = safe_float(s_info.get("issuedSize") or t_info.get("issuedSize"))
+                                    margin_val = safe_float(t_info.get("applicableMargin") or p_info.get("applicableMargin"))
+                                    impact_val = safe_float(t_info.get("impactCost"))
+                                    ffmc_val = safe_float(t_info.get("ffmc"))
+                                    turnover_val = safe_float(t_info.get("totalTradedValue"))
+                                    volume_val = safe_float(t_info.get("totalTradedVolume"))
 
-                if collected_details:
-                    from app.services.db_manager import DatabaseManager
-                    details_saved = await DatabaseManager.upsert_stock_details_records(collected_details)
+                                    collected_details.append({
+                                        "date": today_str,
+                                        "symbol": sym,
+                                        "company_name": c_name,
+                                        "industry": industry_name,
+                                        "isin": isin_val,
+                                        "delivery_pct": deliv_pct_val,
+                                        "face_value": face_val,
+                                        "daily_volatility": daily_vol,
+                                        "annual_volatility": annual_vol,
+                                        "issued_capital": issued_cap,
+                                        "applicable_margin": margin_val,
+                                        "impact_cost": impact_val,
+                                        "free_float_mcap": ffmc_val,
+                                        "total_turnover": turnover_val,
+                                        "total_volume": volume_val,
+                                        "trade_info": t_info,
+                                        "price_info": p_info,
+                                        "security_info": s_info,
+                                        "order_book": o_book,
+                                        "meta_data": m_data
+                                    })
+                            except Exception as sym_err:
+                                logger.warning(f"Error fetching detail for {sym}: {sym_err}")
+
+                    tasks = [fetch_and_save_detail(s) for s in all_symbols_to_detail]
+                    await asyncio.gather(*tasks)
+
+                    if collected_details:
+                        from app.services.db_manager import DatabaseManager
+                        details_saved = await DatabaseManager.upsert_stock_details_records(collected_details)
 
             # 4. Ingest Market-Wide Corporate Actions, Calendar Events & Announcements
             corp_actions_saved = 0
