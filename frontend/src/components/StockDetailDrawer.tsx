@@ -147,7 +147,7 @@ export const StockDetailDrawer: React.FC<StockDetailDrawerProps> = ({ symbol, se
                     }`}
                   >
                     {isPos ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-                    {isPos ? "+" : ""}{pctChange.toFixed(2)}% (₹{change.toFixed(2)})
+                    {isPos ? "+" : ""}{Number(pctChange || 0).toFixed(2)}% (₹{Number(change || 0).toFixed(2)})
                   </span>
                 </div>
               </div>
@@ -230,7 +230,7 @@ export const StockDetailDrawer: React.FC<StockDetailDrawerProps> = ({ symbol, se
                     <div className="bg-white border border-slate-200 p-3.5 rounded-xl shadow-card">
                       <span className="text-[11px] text-slate-500 font-medium block">Delivery %</span>
                       <p className="text-sm font-bold font-mono text-emerald-700 mt-1 tabular-nums">
-                        {delivPct ? `${floatSafe(delivPct).toFixed(2)}%` : "-"}
+                        {delivPct != null && !isNaN(floatSafe(delivPct)) ? `${floatSafe(delivPct).toFixed(2)}%` : "-"}
                       </p>
                     </div>
 
@@ -256,7 +256,7 @@ export const StockDetailDrawer: React.FC<StockDetailDrawerProps> = ({ symbol, se
                     {/* Delivery Progress Bar */}
                     <div>
                       <div className="flex justify-between text-xs font-medium mb-1.5">
-                        <span className="text-slate-600">Delivery Percentage ({delivPct ? `${floatSafe(delivPct).toFixed(2)}%` : "-"})</span>
+                        <span className="text-slate-600">Delivery Percentage ({delivPct != null && !isNaN(floatSafe(delivPct)) ? `${floatSafe(delivPct).toFixed(2)}%` : "-"})</span>
                         <span className="text-slate-400 font-mono">
                           Traded: {tInfo.totalTradedVolume ? tInfo.totalTradedVolume.toLocaleString("en-IN") : "-"}
                         </span>

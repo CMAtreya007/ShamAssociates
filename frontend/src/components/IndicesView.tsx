@@ -214,14 +214,14 @@ export const IndicesView: React.FC<IndicesViewProps> = ({ category, selectedDate
 
               <tbody className="divide-y divide-slate-100 font-sans">
                 {filteredAndSorted.map((idx) => {
-                  const pct = idx.pct_change || 0;
+                  const pct = idx.pct_change != null ? idx.pct_change : 0;
                   const isPos = pct > 0;
                   const isNeg = pct < 0;
 
-                  const mktPerf = idx.market_performance ?? ((idx.value !== undefined && idx.previous_close !== undefined) ? (idx.value - idx.previous_close) : idx.variation);
-                  const premarket = idx.premarket ?? ((idx.open !== undefined && idx.previous_close !== undefined) ? (idx.open - idx.previous_close) : undefined);
-                  const recLow = idx.recover_from_low ?? ((idx.value !== undefined && idx.low !== undefined) ? (idx.value - idx.low) : undefined);
-                  const distHigh = idx.distance_from_high ?? ((idx.value !== undefined && idx.high !== undefined) ? (idx.value - idx.high) : undefined);
+                  const mktPerf = idx.market_performance != null ? idx.market_performance : ((idx.value != null && idx.previous_close != null) ? (idx.value - idx.previous_close) : (idx.variation != null ? idx.variation : null));
+                  const premarket = idx.premarket != null ? idx.premarket : ((idx.open != null && idx.previous_close != null) ? (idx.open - idx.previous_close) : null);
+                  const recLow = idx.recover_from_low != null ? idx.recover_from_low : ((idx.value != null && idx.low != null) ? (idx.value - idx.low) : null);
+                  const distHigh = idx.distance_from_high != null ? idx.distance_from_high : ((idx.value != null && idx.high != null) ? (idx.value - idx.high) : null);
 
                   return (
                     <tr key={idx.index_name} className="hover:bg-slate-50/80 transition-colors">
@@ -230,12 +230,12 @@ export const IndicesView: React.FC<IndicesViewProps> = ({ category, selectedDate
                       </td>
 
                       <td className="py-3 px-4 text-right font-bold font-mono text-slate-900 tabular-nums">
-                        {idx.value?.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "-"}
+                        {idx.value != null ? Number(idx.value).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-"}
                       </td>
 
                       <td className="py-3 px-4 text-right font-mono text-slate-600 tabular-nums">
-                        {idx.variation !== undefined && idx.variation !== null
-                          ? `${idx.variation > 0 ? "+" : ""}${idx.variation.toFixed(2)}`
+                        {idx.variation != null && !isNaN(Number(idx.variation))
+                          ? `${Number(idx.variation) > 0 ? "+" : ""}${Number(idx.variation).toFixed(2)}`
                           : "-"}
                       </td>
 
@@ -249,60 +249,60 @@ export const IndicesView: React.FC<IndicesViewProps> = ({ category, selectedDate
                               : "bg-slate-100 text-slate-600 border border-slate-200"
                           }`}
                         >
-                          {isPos ? "+" : ""}{pct.toFixed(2)}%
+                          {pct != null && !isNaN(Number(pct)) ? `${isPos ? "+" : ""}${Number(pct).toFixed(2)}%` : "-"}
                         </span>
                       </td>
 
                       <td className="py-3 px-3 text-right font-mono text-slate-600 tabular-nums hidden sm:table-cell">
-                        {idx.previous_close?.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "-"}
+                        {idx.previous_close != null ? Number(idx.previous_close).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-"}
                       </td>
 
                       <td className="py-3 px-3 text-right font-mono tabular-nums hidden md:table-cell">
-                        {mktPerf !== undefined ? (
-                          <span className={mktPerf >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
-                            {mktPerf > 0 ? "+" : ""}{mktPerf.toFixed(2)}
+                        {mktPerf != null && !isNaN(Number(mktPerf)) ? (
+                          <span className={Number(mktPerf) >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
+                            {Number(mktPerf) > 0 ? "+" : ""}{Number(mktPerf).toFixed(2)}
                           </span>
                         ) : "-"}
                       </td>
 
                       <td className="py-3 px-3 text-right font-mono tabular-nums hidden lg:table-cell">
-                        {premarket !== undefined ? (
-                          <span className={premarket >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
-                            {premarket > 0 ? "+" : ""}{premarket.toFixed(2)}
+                        {premarket != null && !isNaN(Number(premarket)) ? (
+                          <span className={Number(premarket) >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
+                            {Number(premarket) > 0 ? "+" : ""}{Number(premarket).toFixed(2)}
                           </span>
                         ) : "-"}
                       </td>
 
                       <td className="py-3 px-3 text-right font-mono tabular-nums hidden xl:table-cell">
-                        {recLow !== undefined ? (
+                        {recLow != null && !isNaN(Number(recLow)) ? (
                           <span className="text-emerald-700 font-bold">
-                            +{recLow.toFixed(2)}
+                            +{Number(recLow).toFixed(2)}
                           </span>
                         ) : "-"}
                       </td>
 
                       <td className="py-3 px-3 text-right font-mono tabular-nums hidden xl:table-cell">
-                        {distHigh !== undefined ? (
-                          <span className={distHigh >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
-                            {distHigh.toFixed(2)}
+                        {distHigh != null && !isNaN(Number(distHigh)) ? (
+                          <span className={Number(distHigh) >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
+                            {Number(distHigh).toFixed(2)}
                           </span>
                         ) : "-"}
                       </td>
 
                       <td className="py-3 px-4 text-right font-mono text-slate-600 tabular-nums">
-                        {idx.pe ? idx.pe.toFixed(2) : "-"}
+                        {idx.pe != null && !isNaN(Number(idx.pe)) ? Number(idx.pe).toFixed(2) : "-"}
                       </td>
 
                       <td className="py-3 px-4 text-right font-mono text-slate-600 tabular-nums">
-                        {idx.pb ? idx.pb.toFixed(2) : "-"}
+                        {idx.pb != null && !isNaN(Number(idx.pb)) ? Number(idx.pb).toFixed(2) : "-"}
                       </td>
 
                       <td className="py-3 px-4 text-right font-mono text-slate-600 tabular-nums">
-                        {idx.dy !== undefined && idx.dy !== null ? `${idx.dy.toFixed(2)}%` : "-"}
+                        {idx.dy != null && !isNaN(Number(idx.dy)) ? `${Number(idx.dy).toFixed(2)}%` : "-"}
                       </td>
 
                       <td className="py-3 px-4 text-center font-mono text-[11px] tabular-nums">
-                        {idx.advances !== undefined && idx.declines !== undefined ? (
+                        {idx.advances != null && idx.declines != null ? (
                           <div className="flex items-center justify-center gap-1.5">
                             <span className="text-emerald-700 font-bold">{idx.advances}</span>
                             <span className="text-slate-300">/</span>
@@ -312,13 +312,15 @@ export const IndicesView: React.FC<IndicesViewProps> = ({ category, selectedDate
                       </td>
 
                       <td className="py-3 px-4 text-right font-mono tabular-nums hidden md:table-cell">
-                        <span className={(idx.per_change_30d || 0) >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
-                          {idx.per_change_30d ? `${idx.per_change_30d > 0 ? "+" : ""}${idx.per_change_30d.toFixed(2)}%` : "-"}
-                        </span>
+                        {idx.per_change_30d != null && !isNaN(Number(idx.per_change_30d)) ? (
+                          <span className={Number(idx.per_change_30d) >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
+                            {Number(idx.per_change_30d) > 0 ? "+" : ""}{Number(idx.per_change_30d).toFixed(2)}%
+                          </span>
+                        ) : "-"}
                       </td>
 
                       <td className="py-3 px-4 text-right font-mono text-slate-600 tabular-nums hidden lg:table-cell">
-                        {idx.year_high?.toLocaleString("en-IN", { minimumFractionDigits: 2 }) || "-"}
+                        {idx.year_high != null ? Number(idx.year_high).toLocaleString("en-IN", { minimumFractionDigits: 2 }) : "-"}
                       </td>
                     </tr>
                   );

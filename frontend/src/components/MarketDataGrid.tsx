@@ -352,16 +352,16 @@ export const MarketDataGrid: React.FC<MarketDataGridProps> = ({
                 </tr>
               ) : (
                 processedStocks.map((stock) => {
-                  const pct = stock.pct_change || 0;
+                  const pct = stock.pct_change != null ? stock.pct_change : 0;
                   const isPos = pct > 0;
                   const isNeg = pct < 0;
-                  const turnoverCr = (stock.turnover || 0) / 10000000.0;
+                  const turnoverCr = stock.turnover ? (stock.turnover / 10000000.0) : 0;
 
                   // 4 Performance metrics
-                  const mktPerf = stock.market_performance ?? ((stock.ltp !== undefined && stock.previous_close !== undefined) ? (stock.ltp - stock.previous_close) : stock.change);
-                  const premarket = stock.premarket ?? ((stock.open !== undefined && stock.previous_close !== undefined) ? (stock.open - stock.previous_close) : undefined);
-                  const recLow = stock.recover_from_low ?? ((stock.ltp !== undefined && stock.low !== undefined) ? (stock.ltp - stock.low) : undefined);
-                  const distHigh = stock.distance_from_high ?? ((stock.ltp !== undefined && stock.high !== undefined) ? (stock.ltp - stock.high) : undefined);
+                  const mktPerf = stock.market_performance != null ? stock.market_performance : ((stock.ltp != null && stock.previous_close != null) ? (stock.ltp - stock.previous_close) : (stock.change != null ? stock.change : null));
+                  const premarket = stock.premarket != null ? stock.premarket : ((stock.open != null && stock.previous_close != null) ? (stock.open - stock.previous_close) : null);
+                  const recLow = stock.recover_from_low != null ? stock.recover_from_low : ((stock.ltp != null && stock.low != null) ? (stock.ltp - stock.low) : null);
+                  const distHigh = stock.distance_from_high != null ? stock.distance_from_high : ((stock.ltp != null && stock.high != null) ? (stock.ltp - stock.high) : null);
 
                   // Day Range
                   const low = stock.low || 0;
@@ -458,7 +458,7 @@ export const MarketDataGrid: React.FC<MarketDataGridProps> = ({
                             ? "bg-red-100 text-red-800 font-extrabold ring-2 ring-red-400/60 scale-105"
                             : "text-slate-900"
                         }`}>
-                          ₹{stock.ltp ? stock.ltp.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-"}
+                          {stock.ltp != null ? `₹${Number(stock.ltp).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "-"}
                         </span>
                       </td>
 
@@ -473,47 +473,47 @@ export const MarketDataGrid: React.FC<MarketDataGridProps> = ({
                               : "bg-slate-100 text-slate-600 border border-slate-200"
                           }`}
                         >
-                          {isPos ? "+" : ""}{pct.toFixed(2)}%
+                          {pct != null && !isNaN(Number(pct)) ? `${isPos ? "+" : ""}${Number(pct).toFixed(2)}%` : "-"}
                         </span>
                       </td>
 
                       {/* Prev Close */}
                       <td className="py-3 px-3 text-right font-mono text-slate-600 text-xs tabular-nums hidden sm:table-cell">
-                        ₹{stock.previous_close?.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "-"}
+                        {stock.previous_close != null ? `₹${Number(stock.previous_close).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "-"}
                       </td>
 
                       {/* Market Performance */}
                       <td className="py-3 px-3 text-right font-mono text-xs tabular-nums hidden md:table-cell">
-                        {mktPerf !== undefined && mktPerf !== null ? (
-                          <span className={mktPerf >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
-                            {mktPerf > 0 ? "+" : ""}₹{mktPerf.toFixed(2)}
+                        {mktPerf != null && !isNaN(Number(mktPerf)) ? (
+                          <span className={Number(mktPerf) >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
+                            {Number(mktPerf) > 0 ? "+" : ""}₹{Number(mktPerf).toFixed(2)}
                           </span>
                         ) : "-"}
                       </td>
 
                       {/* Premarket */}
                       <td className="py-3 px-3 text-right font-mono text-xs tabular-nums hidden lg:table-cell">
-                        {premarket !== undefined && premarket !== null ? (
-                          <span className={premarket >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
-                            {premarket > 0 ? "+" : ""}₹{premarket.toFixed(2)}
+                        {premarket != null && !isNaN(Number(premarket)) ? (
+                          <span className={Number(premarket) >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
+                            {Number(premarket) > 0 ? "+" : ""}₹{Number(premarket).toFixed(2)}
                           </span>
                         ) : "-"}
                       </td>
 
                       {/* Recover from Day Low */}
                       <td className="py-3 px-3 text-right font-mono text-xs tabular-nums hidden xl:table-cell">
-                        {recLow !== undefined && recLow !== null ? (
+                        {recLow != null && !isNaN(Number(recLow)) ? (
                           <span className="text-emerald-700 font-bold">
-                            +₹{recLow.toFixed(2)}
+                            +₹{Number(recLow).toFixed(2)}
                           </span>
                         ) : "-"}
                       </td>
 
                       {/* Distance from Day High */}
                       <td className="py-3 px-3 text-right font-mono text-xs tabular-nums hidden xl:table-cell">
-                        {distHigh !== undefined && distHigh !== null ? (
-                          <span className={distHigh >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
-                            ₹{distHigh.toFixed(2)}
+                        {distHigh != null && !isNaN(Number(distHigh)) ? (
+                          <span className={Number(distHigh) >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
+                            ₹{Number(distHigh).toFixed(2)}
                           </span>
                         ) : "-"}
                       </td>

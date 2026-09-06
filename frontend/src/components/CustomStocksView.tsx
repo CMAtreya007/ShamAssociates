@@ -368,7 +368,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
               <p className="text-sm font-bold text-slate-900 mt-1 group-hover:text-emerald-600 transition">{summary.topGainer?.symbol || "-"}</p>
               <p className="text-xs font-mono font-semibold text-emerald-600 mt-0.5">
                 {summary.topGainer?.ltp ? `₹${summary.topGainer.ltp.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"} 
-                {summary.topGainer?.pct_change !== undefined ? ` (+${summary.topGainer.pct_change.toFixed(2)}%)` : ""}
+                {summary.topGainer?.pct_change != null && !isNaN(Number(summary.topGainer.pct_change)) ? ` (+${Number(summary.topGainer.pct_change).toFixed(2)}%)` : ""}
               </p>
             </div>
             <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600">
@@ -386,7 +386,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
               <p className="text-sm font-bold text-slate-900 mt-1 group-hover:text-rose-600 transition">{summary.topLoser?.symbol || "-"}</p>
               <p className="text-xs font-mono font-semibold text-rose-600 mt-0.5">
                 {summary.topLoser?.ltp ? `₹${summary.topLoser.ltp.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"} 
-                {summary.topLoser?.pct_change !== undefined ? ` (${summary.topLoser.pct_change.toFixed(2)}%)` : ""}
+                {summary.topLoser?.pct_change != null && !isNaN(Number(summary.topLoser.pct_change)) ? ` (${Number(summary.topLoser.pct_change).toFixed(2)}%)` : ""}
               </p>
             </div>
             <div className="p-2.5 rounded-xl bg-rose-50 text-rose-600">
@@ -399,7 +399,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
             <div>
               <p className="text-xs font-medium text-slate-500">Watchlist Turnover</p>
               <p className="text-lg font-bold text-slate-900 font-mono mt-1">
-                ₹ {summary.totalTurnoverCr.toLocaleString("en-IN", { maximumFractionDigits: 1 })} <span className="text-xs font-sans text-slate-400 font-normal">Cr</span>
+                ₹ {(summary.totalTurnoverCr || 0).toLocaleString("en-IN", { maximumFractionDigits: 1 })} <span className="text-xs font-sans text-slate-400 font-normal">Cr</span>
               </p>
               <p className="text-[11px] text-slate-400 mt-0.5">{stocks.length} Custom Stocks</p>
             </div>
@@ -625,17 +625,17 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
 
               <tbody className="divide-y divide-slate-100">
                 {filteredAndSorted.map((stock) => {
-                  const pct = stock.pct_change || 0;
+                  const pct = stock.pct_change != null ? stock.pct_change : 0;
                   const isPos = pct > 0;
                   const isNeg = pct < 0;
-                  const turnoverCr = (stock.turnover || 0) / 10000000.0;
+                  const turnoverCr = stock.turnover ? (stock.turnover / 10000000.0) : 0;
                   const flash = priceFlashMap[stock.symbol];
 
                   // 4 Performance metrics
-                  const mktPerf = stock.market_performance ?? ((stock.ltp !== undefined && stock.previous_close !== undefined) ? (stock.ltp - stock.previous_close) : stock.change);
-                  const premarket = stock.premarket ?? ((stock.open !== undefined && stock.previous_close !== undefined) ? (stock.open - stock.previous_close) : undefined);
-                  const recLow = stock.recover_from_low ?? ((stock.ltp !== undefined && stock.low !== undefined) ? (stock.ltp - stock.low) : undefined);
-                  const distHigh = stock.distance_from_high ?? ((stock.ltp !== undefined && stock.high !== undefined) ? (stock.ltp - stock.high) : undefined);
+                  const mktPerf = stock.market_performance != null ? stock.market_performance : ((stock.ltp != null && stock.previous_close != null) ? (stock.ltp - stock.previous_close) : (stock.change != null ? stock.change : null));
+                  const premarket = stock.premarket != null ? stock.premarket : ((stock.open != null && stock.previous_close != null) ? (stock.open - stock.previous_close) : null);
+                  const recLow = stock.recover_from_low != null ? stock.recover_from_low : ((stock.ltp != null && stock.low != null) ? (stock.ltp - stock.low) : null);
+                  const distHigh = stock.distance_from_high != null ? stock.distance_from_high : ((stock.ltp != null && stock.high != null) ? (stock.ltp - stock.high) : null);
 
                   // Day Range
                   const low = stock.low || 0;
@@ -728,7 +728,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                         <span className={`inline-block px-1 rounded transition-colors duration-500 ${
                           flash === "UP" ? "bg-emerald-100 text-emerald-800" : flash === "DOWN" ? "bg-rose-100 text-rose-800" : ""
                         }`}>
-                          {stock.ltp !== undefined && stock.ltp !== null ? `₹${stock.ltp.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"}
+                          {stock.ltp != null ? `₹${Number(stock.ltp).toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"}
                         </span>
                       </td>
 
@@ -743,59 +743,59 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                               : "bg-slate-100 text-slate-600 border border-slate-200"
                           }`}
                         >
-                          {isPos ? "+" : ""}{pct.toFixed(2)}%
+                          {pct != null && !isNaN(Number(pct)) ? `${isPos ? "+" : ""}${Number(pct).toFixed(2)}%` : "-"}
                         </span>
-                        {stock.change !== undefined && (
+                        {stock.change != null && !isNaN(Number(stock.change)) && (
                           <div className={`text-[10px] mt-0.5 ${isPos ? "text-emerald-600" : isNeg ? "text-rose-600" : "text-slate-400"}`}>
-                            {stock.change > 0 ? "+" : ""}{stock.change.toFixed(2)}
+                            {Number(stock.change) > 0 ? "+" : ""}{Number(stock.change).toFixed(2)}
                           </div>
                         )}
                       </td>
 
                       {/* Previous Close */}
                       <td className="py-3 px-3 text-right font-mono text-slate-600 hidden sm:table-cell">
-                        {stock.previous_close ? `₹${stock.previous_close.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"}
+                        {stock.previous_close != null ? `₹${Number(stock.previous_close).toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"}
                       </td>
 
                       {/* Market Performance */}
                       <td className="py-3 px-3 text-right font-mono hidden md:table-cell">
-                        {mktPerf !== undefined && mktPerf !== null ? (
+                        {mktPerf != null && !isNaN(Number(mktPerf)) ? (
                           <span className={mktPerf > 0 ? "text-emerald-600 font-semibold" : mktPerf < 0 ? "text-rose-600 font-semibold" : "text-slate-500"}>
-                            {mktPerf > 0 ? "+" : ""}{mktPerf.toFixed(2)}
+                            {mktPerf > 0 ? "+" : ""}{Number(mktPerf).toFixed(2)}
                           </span>
                         ) : "-"}
                       </td>
 
                       {/* Premarket */}
                       <td className="py-3 px-3 text-right font-mono hidden lg:table-cell">
-                        {premarket !== undefined && premarket !== null ? (
+                        {premarket != null && !isNaN(Number(premarket)) ? (
                           <span className={premarket > 0 ? "text-emerald-600 font-semibold" : premarket < 0 ? "text-rose-600 font-semibold" : "text-slate-500"}>
-                            {premarket > 0 ? "+" : ""}{premarket.toFixed(2)}
+                            {premarket > 0 ? "+" : ""}{Number(premarket).toFixed(2)}
                           </span>
                         ) : "-"}
                       </td>
 
                       {/* Recover from Low */}
                       <td className="py-3 px-3 text-right font-mono hidden xl:table-cell">
-                        {recLow !== undefined && recLow !== null ? (
+                        {recLow != null && !isNaN(Number(recLow)) ? (
                           <span className={recLow > 0 ? "text-emerald-600 font-semibold" : "text-slate-500"}>
-                            +{recLow.toFixed(2)}
+                            +{Number(recLow).toFixed(2)}
                           </span>
                         ) : "-"}
                       </td>
 
                       {/* Distance from High */}
                       <td className="py-3 px-3 text-right font-mono hidden xl:table-cell">
-                        {distHigh !== undefined && distHigh !== null ? (
+                        {distHigh != null && !isNaN(Number(distHigh)) ? (
                           <span className={distHigh < 0 ? "text-rose-600 font-semibold" : "text-slate-500"}>
-                            {distHigh.toFixed(2)}
+                            {Number(distHigh).toFixed(2)}
                           </span>
                         ) : "-"}
                       </td>
 
                       {/* Open */}
                       <td className="py-3 px-3 text-right font-mono text-slate-700 hidden sm:table-cell">
-                        {stock.open ? `₹${stock.open.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"}
+                        {stock.open != null ? `₹${Number(stock.open).toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"}
                       </td>
 
                       {/* High */}
