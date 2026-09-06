@@ -31,7 +31,9 @@ INDEX_CATEGORIES = [
 
 INDICES_HEADERS = [
     "Date", "Index Name", "Index Symbol", "Current Value", "Variation", "% Change",
-    "Open", "High", "Low", "Prev Close", "P/E", "P/B", "Div Yield (%)",
+    "Open", "High", "Low", "Prev Close",
+    "Market Performance", "Premarket", "Recover from Day Low", "Distance from Day High",
+    "P/E", "P/B", "Div Yield (%)",
     "Advances", "Declines", "Unchanged", "30D % Change", "365D % Change",
     "52W High", "52W Low", "1-Week Return (%)", "1-Month Return (%)", "1-Year Return (%)",
     "1-Week Ago Val", "1-Month Ago Val", "1-Year Ago Val"
@@ -39,7 +41,8 @@ INDICES_HEADERS = [
 
 NIFTY50_OVERVIEW_HEADERS = [
     "Date", "Symbol", "Company Name", "Series", "Open (₹)", "High (₹)", "Low (₹)",
-    "Prev Close (₹)", "LTP (₹)", "Change (₹)", "% Change", "Volume (Shares)", "Turnover (₹ Cr)",
+    "Prev Close (₹)", "Market Performance (₹)", "Premarket (₹)", "Recover from Day Low (₹)", "Distance from Day High (₹)",
+    "LTP (₹)", "Change (₹)", "% Change", "Volume (Shares)", "Turnover (₹ Cr)",
     "52W High (₹)", "52W Low (₹)", "30D % Change", "365D % Change", "Near 52W High (%)",
     "Near 52W Low (%)", "Free Float MCap (₹ Cr)", "Active Catalysts", "Last Update Time"
 ]
@@ -114,6 +117,12 @@ class MasterExcelSyncManager:
                 ret_1m = ((val - idx.one_month_ago_val) / idx.one_month_ago_val) if (idx.one_month_ago_val and idx.one_month_ago_val > 0 and val > 0) else None
                 ret_1y = ((val - idx.one_year_ago_val) / idx.one_year_ago_val) if (idx.one_year_ago_val and idx.one_year_ago_val > 0 and val > 0) else None
 
+                # 4 Calculated columns
+                idx_mkt_perf = (idx.value - idx.previous_close) if (idx.value is not None and idx.previous_close is not None) else (idx.variation if idx.variation is not None else None)
+                idx_premarket = (idx.open - idx.previous_close) if (idx.open is not None and idx.previous_close is not None) else None
+                idx_rec_low = (idx.value - idx.low) if (idx.value is not None and idx.low is not None) else None
+                idx_dist_high = (idx.value - idx.high) if (idx.value is not None and idx.high is not None) else None
+
                 row_data = [
                     idx.date,
                     idx.index_name,
@@ -125,6 +134,10 @@ class MasterExcelSyncManager:
                     idx.high,
                     idx.low,
                     idx.previous_close,
+                    idx_mkt_perf,
+                    idx_premarket,
+                    idx_rec_low,
+                    idx_dist_high,
                     idx.pe,
                     idx.pb,
                     dy_dec,
@@ -154,15 +167,15 @@ class MasterExcelSyncManager:
                         format_cell(c, fill=row_fill, align=Alignment(horizontal="center"), num_format="YYYY-MM-DD")
                     elif c_i in (2, 3):
                         format_cell(c, fill=row_fill, align=Alignment(horizontal="left"))
-                    elif c_i in (4, 7, 8, 9, 10, 19, 20, 24, 25, 26):
+                    elif c_i in (4, 7, 8, 9, 10, 23, 24, 28, 29, 30):
                         format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
-                    elif c_i == 5:
+                    elif c_i in (5, 11, 12, 13, 14):
                         format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="+#,##0.00;-#,##0.00;0.00")
-                    elif c_i in (6, 13, 17, 18, 21, 22, 23):
+                    elif c_i in (6, 17, 21, 22, 25, 26, 27):
                         format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
-                    elif c_i in (11, 12):
+                    elif c_i in (15, 16):
                         format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="0.00")
-                    elif c_i in (14, 15, 16):
+                    elif c_i in (18, 19, 20):
                         format_cell(c, fill=row_fill, align=Alignment(horizontal="center"), num_format="#,##0")
                     else:
                         format_cell(c, fill=row_fill)
@@ -227,6 +240,12 @@ class MasterExcelSyncManager:
             wkh_dec = (s.near_wkh / 100.0) if s.near_wkh is not None else None
             wkl_dec = (s.near_wkl / 100.0) if s.near_wkl is not None else None
 
+            # 4 Calculated columns
+            market_perf = (s.ltp - s.previous_close) if (s.ltp is not None and s.previous_close is not None) else (s.change if s.change is not None else None)
+            premarket = (s.open - s.previous_close) if (s.open is not None and s.previous_close is not None) else None
+            rec_low = (s.ltp - s.low) if (s.ltp is not None and s.low is not None) else None
+            dist_high = (s.ltp - s.high) if (s.ltp is not None and s.high is not None) else None
+
             # Check catalysts
             stock_cas = actions_by_symbol.get(s.symbol, [])
             cat_str = f"{len(stock_cas)} Events" if stock_cas else "None"
@@ -240,6 +259,10 @@ class MasterExcelSyncManager:
                 s.high,
                 s.low,
                 s.previous_close,
+                market_perf,
+                premarket,
+                rec_low,
+                dist_high,
                 s.ltp,
                 s.change,
                 pct_dec,
@@ -268,15 +291,15 @@ class MasterExcelSyncManager:
                     format_cell(c, fill=row_fill, align=Alignment(horizontal="left"))
                 elif c_i == 4:
                     format_cell(c, fill=row_fill, align=Alignment(horizontal="center"))
-                elif c_i in (5, 6, 7, 8, 9, 14, 15):
+                elif c_i in (5, 6, 7, 8, 13, 18, 19):
                     format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="₹#,##0.00")
-                elif c_i == 10:
+                elif c_i in (9, 10, 11, 12, 14):
                     format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="+₹#,##0.00;-₹#,##0.00;₹0.00")
-                elif c_i in (11, 16, 17, 18, 19):
+                elif c_i in (15, 20, 21, 22, 23):
                     format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
-                elif c_i == 12:
+                elif c_i == 16:
                     format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0")
-                elif c_i in (13, 20):
+                elif c_i in (17, 24):
                     format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="₹#,##0.00")
                 else:
                     format_cell(c, fill=row_fill, align=Alignment(horizontal="center"))

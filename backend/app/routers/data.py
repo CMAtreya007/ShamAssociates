@@ -96,6 +96,10 @@ async def get_nifty50_data(
     for s in stocks:
         stock_dict = Nifty50StockSchema.model_validate(s)
         stock_dict.catalysts = ca_by_symbol.get(s.symbol, [])
+        stock_dict.market_performance = round(s.ltp - s.previous_close, 2) if (s.ltp is not None and s.previous_close is not None) else (round(s.change, 2) if s.change is not None else None)
+        stock_dict.premarket = round(s.open - s.previous_close, 2) if (s.open is not None and s.previous_close is not None) else None
+        stock_dict.recover_from_low = round(s.ltp - s.low, 2) if (s.ltp is not None and s.low is not None) else None
+        stock_dict.distance_from_high = round(s.ltp - s.high, 2) if (s.ltp is not None and s.high is not None) else None
         result.append(stock_dict)
 
     ram_cache.set(cache_key, result, ttl=30.0)
@@ -499,6 +503,14 @@ async def get_indices_by_category(
         )
 
     indices = q.scalars().all()
-    res = [IndexDailySchema.model_validate(i) for i in indices]
+    res = []
+    for i in indices:
+        idx_schema = IndexDailySchema.model_validate(i)
+        idx_schema.market_performance = round(i.value - i.previous_close, 2) if (i.value is not None and i.previous_close is not None) else (round(i.variation, 2) if i.variation is not None else None)
+        idx_schema.premarket = round(i.open - i.previous_close, 2) if (i.open is not None and i.previous_close is not None) else None
+        idx_schema.recover_from_low = round(i.value - i.low, 2) if (i.value is not None and i.low is not None) else None
+        idx_schema.distance_from_high = round(i.value - i.high, 2) if (i.value is not None and i.high is not None) else None
+        res.append(idx_schema)
+
     ram_cache.set(cache_key, res, ttl=30.0)
     return res

@@ -37,6 +37,10 @@ export interface Nifty50Stock {
   high?: number;
   low?: number;
   previous_close?: number;
+  market_performance?: number;
+  premarket?: number;
+  recover_from_low?: number;
+  distance_from_high?: number;
   ltp?: number;
   change?: number;
   pct_change?: number;
@@ -91,6 +95,10 @@ export interface IndexDaily {
   high?: number;
   low?: number;
   previous_close?: number;
+  market_performance?: number;
+  premarket?: number;
+  recover_from_low?: number;
+  distance_from_high?: number;
   year_high?: number;
   year_low?: number;
   pe?: number;

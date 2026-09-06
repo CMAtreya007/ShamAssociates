@@ -259,6 +259,41 @@ export const MarketDataGrid: React.FC<MarketDataGridProps> = ({
                   </div>
                 </th>
 
+                <th onClick={() => handleSort("previous_close")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden sm:table-cell">
+                  <div className="flex items-center justify-end gap-1">
+                    <span>Prev Close</span>
+                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                  </div>
+                </th>
+
+                <th onClick={() => handleSort("market_performance")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden md:table-cell">
+                  <div className="flex items-center justify-end gap-1">
+                    <span>Mkt Perf</span>
+                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                  </div>
+                </th>
+
+                <th onClick={() => handleSort("premarket")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden lg:table-cell">
+                  <div className="flex items-center justify-end gap-1">
+                    <span>Premarket</span>
+                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                  </div>
+                </th>
+
+                <th onClick={() => handleSort("recover_from_low")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden xl:table-cell">
+                  <div className="flex items-center justify-end gap-1">
+                    <span>Rec Low</span>
+                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                  </div>
+                </th>
+
+                <th onClick={() => handleSort("distance_from_high")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden xl:table-cell">
+                  <div className="flex items-center justify-end gap-1">
+                    <span>Dist High</span>
+                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                  </div>
+                </th>
+
                 <th onClick={() => handleSort("day_range_pos")} className="py-3 px-4 text-center cursor-pointer hover:text-slate-900 transition min-w-[150px]">
                   <div className="flex items-center justify-center gap-1.5">
                     <span>Day Range (L/H)</span>
@@ -311,7 +346,7 @@ export const MarketDataGrid: React.FC<MarketDataGridProps> = ({
             <tbody className="divide-y divide-slate-100">
               {processedStocks.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400 text-xs font-mono">
+                  <td colSpan={16} className="py-12 text-center text-slate-400 text-xs font-mono">
                     No stocks match the active filter "{search || activeTab}".
                   </td>
                 </tr>
@@ -321,6 +356,12 @@ export const MarketDataGrid: React.FC<MarketDataGridProps> = ({
                   const isPos = pct > 0;
                   const isNeg = pct < 0;
                   const turnoverCr = (stock.turnover || 0) / 10000000.0;
+
+                  // 4 Performance metrics
+                  const mktPerf = stock.market_performance ?? ((stock.ltp !== undefined && stock.previous_close !== undefined) ? (stock.ltp - stock.previous_close) : stock.change);
+                  const premarket = stock.premarket ?? ((stock.open !== undefined && stock.previous_close !== undefined) ? (stock.open - stock.previous_close) : undefined);
+                  const recLow = stock.recover_from_low ?? ((stock.ltp !== undefined && stock.low !== undefined) ? (stock.ltp - stock.low) : undefined);
+                  const distHigh = stock.distance_from_high ?? ((stock.ltp !== undefined && stock.high !== undefined) ? (stock.ltp - stock.high) : undefined);
 
                   // Day Range
                   const low = stock.low || 0;
@@ -434,6 +475,47 @@ export const MarketDataGrid: React.FC<MarketDataGridProps> = ({
                         >
                           {isPos ? "+" : ""}{pct.toFixed(2)}%
                         </span>
+                      </td>
+
+                      {/* Prev Close */}
+                      <td className="py-3 px-3 text-right font-mono text-slate-600 text-xs tabular-nums hidden sm:table-cell">
+                        ₹{stock.previous_close?.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "-"}
+                      </td>
+
+                      {/* Market Performance */}
+                      <td className="py-3 px-3 text-right font-mono text-xs tabular-nums hidden md:table-cell">
+                        {mktPerf !== undefined && mktPerf !== null ? (
+                          <span className={mktPerf >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
+                            {mktPerf > 0 ? "+" : ""}₹{mktPerf.toFixed(2)}
+                          </span>
+                        ) : "-"}
+                      </td>
+
+                      {/* Premarket */}
+                      <td className="py-3 px-3 text-right font-mono text-xs tabular-nums hidden lg:table-cell">
+                        {premarket !== undefined && premarket !== null ? (
+                          <span className={premarket >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
+                            {premarket > 0 ? "+" : ""}₹{premarket.toFixed(2)}
+                          </span>
+                        ) : "-"}
+                      </td>
+
+                      {/* Recover from Day Low */}
+                      <td className="py-3 px-3 text-right font-mono text-xs tabular-nums hidden xl:table-cell">
+                        {recLow !== undefined && recLow !== null ? (
+                          <span className="text-emerald-700 font-bold">
+                            +₹{recLow.toFixed(2)}
+                          </span>
+                        ) : "-"}
+                      </td>
+
+                      {/* Distance from Day High */}
+                      <td className="py-3 px-3 text-right font-mono text-xs tabular-nums hidden xl:table-cell">
+                        {distHigh !== undefined && distHigh !== null ? (
+                          <span className={distHigh >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
+                            ₹{distHigh.toFixed(2)}
+                          </span>
+                        ) : "-"}
                       </td>
 
                       {/* Day Range Slider [--•--------] */}

@@ -138,6 +138,41 @@ export const IndicesView: React.FC<IndicesViewProps> = ({ category, selectedDate
                     </div>
                   </th>
 
+                  <th onClick={() => handleSort("previous_close")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden sm:table-cell">
+                    <div className="flex items-center justify-end gap-1">
+                      <span>Prev Close</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    </div>
+                  </th>
+
+                  <th onClick={() => handleSort("market_performance")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden md:table-cell">
+                    <div className="flex items-center justify-end gap-1">
+                      <span>Mkt Perf</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    </div>
+                  </th>
+
+                  <th onClick={() => handleSort("premarket")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden lg:table-cell">
+                    <div className="flex items-center justify-end gap-1">
+                      <span>Premarket</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    </div>
+                  </th>
+
+                  <th onClick={() => handleSort("recover_from_low")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden xl:table-cell">
+                    <div className="flex items-center justify-end gap-1">
+                      <span>Rec Low</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    </div>
+                  </th>
+
+                  <th onClick={() => handleSort("distance_from_high")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden xl:table-cell">
+                    <div className="flex items-center justify-end gap-1">
+                      <span>Dist High</span>
+                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    </div>
+                  </th>
+
                   <th onClick={() => handleSort("pe")} className="py-3 px-4 text-right cursor-pointer hover:text-slate-900 transition">
                     <div className="flex items-center justify-end gap-1.5">
                       <span>P/E</span>
@@ -183,6 +218,11 @@ export const IndicesView: React.FC<IndicesViewProps> = ({ category, selectedDate
                   const isPos = pct > 0;
                   const isNeg = pct < 0;
 
+                  const mktPerf = idx.market_performance ?? ((idx.value !== undefined && idx.previous_close !== undefined) ? (idx.value - idx.previous_close) : idx.variation);
+                  const premarket = idx.premarket ?? ((idx.open !== undefined && idx.previous_close !== undefined) ? (idx.open - idx.previous_close) : undefined);
+                  const recLow = idx.recover_from_low ?? ((idx.value !== undefined && idx.low !== undefined) ? (idx.value - idx.low) : undefined);
+                  const distHigh = idx.distance_from_high ?? ((idx.value !== undefined && idx.high !== undefined) ? (idx.value - idx.high) : undefined);
+
                   return (
                     <tr key={idx.index_name} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3 px-4 font-bold text-slate-900">
@@ -211,6 +251,42 @@ export const IndicesView: React.FC<IndicesViewProps> = ({ category, selectedDate
                         >
                           {isPos ? "+" : ""}{pct.toFixed(2)}%
                         </span>
+                      </td>
+
+                      <td className="py-3 px-3 text-right font-mono text-slate-600 tabular-nums hidden sm:table-cell">
+                        {idx.previous_close?.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "-"}
+                      </td>
+
+                      <td className="py-3 px-3 text-right font-mono tabular-nums hidden md:table-cell">
+                        {mktPerf !== undefined ? (
+                          <span className={mktPerf >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
+                            {mktPerf > 0 ? "+" : ""}{mktPerf.toFixed(2)}
+                          </span>
+                        ) : "-"}
+                      </td>
+
+                      <td className="py-3 px-3 text-right font-mono tabular-nums hidden lg:table-cell">
+                        {premarket !== undefined ? (
+                          <span className={premarket >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
+                            {premarket > 0 ? "+" : ""}{premarket.toFixed(2)}
+                          </span>
+                        ) : "-"}
+                      </td>
+
+                      <td className="py-3 px-3 text-right font-mono tabular-nums hidden xl:table-cell">
+                        {recLow !== undefined ? (
+                          <span className="text-emerald-700 font-bold">
+                            +{recLow.toFixed(2)}
+                          </span>
+                        ) : "-"}
+                      </td>
+
+                      <td className="py-3 px-3 text-right font-mono tabular-nums hidden xl:table-cell">
+                        {distHigh !== undefined ? (
+                          <span className={distHigh >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold"}>
+                            {distHigh.toFixed(2)}
+                          </span>
+                        ) : "-"}
                       </td>
 
                       <td className="py-3 px-4 text-right font-mono text-slate-600 tabular-nums">

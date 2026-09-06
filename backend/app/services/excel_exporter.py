@@ -127,10 +127,11 @@ async def build_nifty50_workbook(target_date: str, output_path: str) -> str:
         for a in all_actions:
             actions_by_symbol.setdefault(a.symbol, []).append(a)
 
-    # Exhaustive Overview Headers with Corporate Actions columns
+    # Exhaustive Overview Headers with Corporate Actions columns and 4 new performance columns
     headers = [
         "Date", "Symbol", "Company Name", "Series", "LTP (₹)", "Change (₹)", "% Change",
         "Open (₹)", "Day High (₹)", "Day Low (₹)", "Prev Close (₹)",
+        "Market Performance (₹)", "Premarket (₹)", "Recover from Day Low (₹)", "Distance from Day High (₹)",
         "Volume (Shares)", "Turnover (₹ Cr)", "Free Float MCap (₹ Cr)",
         "Upcoming Corporate Action", "Board Meeting / Results Date",
         "52W High (₹)", "52W Low (₹)", "30D % Change", "365D % Change",
@@ -158,6 +159,12 @@ async def build_nifty50_workbook(target_date: str, output_path: str) -> str:
         p365_dec = (s.per_change_365d / 100.0) if s.per_change_365d is not None else None
         near_h_dec = (s.near_wkh / 100.0) if s.near_wkh is not None else None
         near_l_dec = (s.near_wkl / 100.0) if s.near_wkl is not None else None
+
+        # 4 Calculated columns
+        market_perf = (s.ltp - s.previous_close) if (s.ltp is not None and s.previous_close is not None) else (s.change if s.change is not None else None)
+        premarket = (s.open - s.previous_close) if (s.open is not None and s.previous_close is not None) else None
+        rec_low = (s.ltp - s.low) if (s.ltp is not None and s.low is not None) else None
+        dist_high = (s.ltp - s.high) if (s.ltp is not None and s.high is not None) else None
 
         # Corporate Action Summary sorted chronologically
         stock_actions = actions_by_symbol.get(s.symbol, [])
@@ -190,6 +197,10 @@ async def build_nifty50_workbook(target_date: str, output_path: str) -> str:
             s.high,
             s.low,
             s.previous_close,
+            market_perf,
+            premarket,
+            rec_low,
+            dist_high,
             s.volume,
             turnover_cr,
             ffmc_cr,
@@ -222,42 +233,46 @@ async def build_nifty50_workbook(target_date: str, output_path: str) -> str:
         format_cell(ws_overview.cell(r, 9), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
         format_cell(ws_overview.cell(r, 10), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
         format_cell(ws_overview.cell(r, 11), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
-        format_cell(ws_overview.cell(r, 12), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0")
-        format_cell(ws_overview.cell(r, 13), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
-        format_cell(ws_overview.cell(r, 14), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
-        format_cell(ws_overview.cell(r, 15), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="left"))
-        format_cell(ws_overview.cell(r, 16), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="center"))
+        format_cell(ws_overview.cell(r, 12), font=BOLD_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+#,##0.00;-#,##0.00;0.00")
+        format_cell(ws_overview.cell(r, 13), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+#,##0.00;-#,##0.00;0.00")
+        format_cell(ws_overview.cell(r, 14), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+#,##0.00;-#,##0.00;0.00")
+        format_cell(ws_overview.cell(r, 15), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+#,##0.00;-#,##0.00;0.00")
+        format_cell(ws_overview.cell(r, 16), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0")
         format_cell(ws_overview.cell(r, 17), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
         format_cell(ws_overview.cell(r, 18), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
-        format_cell(ws_overview.cell(r, 19), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
-        format_cell(ws_overview.cell(r, 20), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
-        format_cell(ws_overview.cell(r, 21), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
-        format_cell(ws_overview.cell(r, 22), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
+        format_cell(ws_overview.cell(r, 19), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="left"))
+        format_cell(ws_overview.cell(r, 20), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="center"))
+        format_cell(ws_overview.cell(r, 21), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
+        format_cell(ws_overview.cell(r, 22), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
+        format_cell(ws_overview.cell(r, 23), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
+        format_cell(ws_overview.cell(r, 24), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
+        format_cell(ws_overview.cell(r, 25), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
+        format_cell(ws_overview.cell(r, 26), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
         ws_overview.row_dimensions[r].height = 20
 
     if row_end >= row_start:
-        # ColorScaleRule on % Change (Col G) and 30D / 365D % Change (Col S / Col T)
+        # ColorScaleRule on % Change (Col G) and 30D / 365D % Change (Col W / Col X)
         color_scale = ColorScaleRule(
             start_type="num", start_value=-0.05, start_color="FCA5A5",
             mid_type="num", mid_value=0.0, mid_color="FFFFFF",
             end_type="num", end_value=0.05, end_color="86EFAC"
         )
         ws_overview.conditional_formatting.add(f"G2:G{row_end}", color_scale)
-        ws_overview.conditional_formatting.add(f"S2:T{row_end}", color_scale)
+        ws_overview.conditional_formatting.add(f"W2:X{row_end}", color_scale)
 
-        # DataBarRule on Volume (Col L) & Turnover (Col M)
+        # DataBarRule on Volume (Col P) & Turnover (Col Q)
         data_bar_vol = DataBarRule(start_type="min", end_type="max", color="60A5FA", showValue="None", minLength=None, maxLength=None)
-        ws_overview.conditional_formatting.add(f"L2:L{row_end}", data_bar_vol)
+        ws_overview.conditional_formatting.add(f"P2:P{row_end}", data_bar_vol)
 
         data_bar_to = DataBarRule(start_type="min", end_type="max", color="93C5FD", showValue="None", minLength=None, maxLength=None)
-        ws_overview.conditional_formatting.add(f"M2:M{row_end}", data_bar_to)
+        ws_overview.conditional_formatting.add(f"Q2:Q{row_end}", data_bar_to)
 
         # IconSetRule on % Change (Col G)
         icon_set = IconSetRule("3Arrows", "num", [0, 0.0001], showValue=None, reverse=None)
         ws_overview.conditional_formatting.add(f"G2:G{row_end}", icon_set)
 
     ws_overview.freeze_panes = "C2"
-    ws_overview.auto_filter.ref = f"A1:V{max(row_end, 1)}"
+    ws_overview.auto_filter.ref = f"A1:Z{max(row_end, 1)}"
     auto_fit_columns(ws_overview)
 
     # ==========================================
@@ -594,10 +609,12 @@ async def build_broad_market_workbook(target_date: str, output_path: str) -> str
             )
             indices: List[IndexDaily] = q.scalars().all()
 
-            # Complete Index Headers
+            # Complete Index Headers with 4 new performance columns
             headers = [
                 "Date", "Index Name", "Index Symbol", "Current Value", "Variation", "% Change",
-                "Open", "High", "Low", "Prev Close", "P/E", "P/B", "Div Yield (%)",
+                "Open", "High", "Low", "Prev Close",
+                "Market Performance", "Premarket", "Recover from Day Low", "Distance from Day High",
+                "P/E", "P/B", "Div Yield (%)",
                 "Advances", "Declines", "Unchanged", "30D % Change", "365D % Change",
                 "52W High", "52W Low", "1-Week Return (%)", "1-Month Return (%)", "1-Year Return (%)",
                 "1-Week Ago Val", "1-Month Ago Val", "1-Year Ago Val"
@@ -621,6 +638,12 @@ async def build_broad_market_workbook(target_date: str, output_path: str) -> str
                 p30_dec = (idx.per_change_30d / 100.0) if idx.per_change_30d is not None else None
                 p365_dec = (idx.per_change_365d / 100.0) if idx.per_change_365d is not None else None
 
+                # 4 Calculated columns
+                idx_mkt_perf = (idx.value - idx.previous_close) if (idx.value is not None and idx.previous_close is not None) else (idx.variation if idx.variation is not None else None)
+                idx_premarket = (idx.open - idx.previous_close) if (idx.open is not None and idx.previous_close is not None) else None
+                idx_rec_low = (idx.value - idx.low) if (idx.value is not None and idx.low is not None) else None
+                idx_dist_high = (idx.value - idx.high) if (idx.value is not None and idx.high is not None) else None
+
                 # Return calculations against historical baselines
                 val = idx.value or 0
                 ret_1w = ((val - idx.one_week_ago_val) / idx.one_week_ago_val) if (idx.one_week_ago_val and idx.one_week_ago_val > 0 and val > 0) else None
@@ -638,6 +661,10 @@ async def build_broad_market_workbook(target_date: str, output_path: str) -> str
                     idx.high,
                     idx.low,
                     idx.previous_close,
+                    idx_mkt_perf,
+                    idx_premarket,
+                    idx_rec_low,
+                    idx_dist_high,
                     idx.pe,
                     idx.pb,
                     dy_dec,
@@ -673,22 +700,26 @@ async def build_broad_market_workbook(target_date: str, output_path: str) -> str
                 format_cell(ws.cell(r, 8), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
                 format_cell(ws.cell(r, 9), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
                 format_cell(ws.cell(r, 10), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
-                format_cell(ws.cell(r, 11), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="0.00")
-                format_cell(ws.cell(r, 12), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="0.00")
-                format_cell(ws.cell(r, 13), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="0.00%")
-                format_cell(ws.cell(r, 14), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0")
-                format_cell(ws.cell(r, 15), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0")
-                format_cell(ws.cell(r, 16), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0")
-                format_cell(ws.cell(r, 17), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
-                format_cell(ws.cell(r, 18), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
-                format_cell(ws.cell(r, 19), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
-                format_cell(ws.cell(r, 20), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
+                format_cell(ws.cell(r, 11), font=BOLD_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+#,##0.00;-#,##0.00;0.00")
+                format_cell(ws.cell(r, 12), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+#,##0.00;-#,##0.00;0.00")
+                format_cell(ws.cell(r, 13), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+#,##0.00;-#,##0.00;0.00")
+                format_cell(ws.cell(r, 14), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+#,##0.00;-#,##0.00;0.00")
+                format_cell(ws.cell(r, 15), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="0.00")
+                format_cell(ws.cell(r, 16), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="0.00")
+                format_cell(ws.cell(r, 17), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="0.00%")
+                format_cell(ws.cell(r, 18), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0")
+                format_cell(ws.cell(r, 19), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0")
+                format_cell(ws.cell(r, 20), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0")
                 format_cell(ws.cell(r, 21), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
                 format_cell(ws.cell(r, 22), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
-                format_cell(ws.cell(r, 23), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
+                format_cell(ws.cell(r, 23), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
                 format_cell(ws.cell(r, 24), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
-                format_cell(ws.cell(r, 25), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
-                format_cell(ws.cell(r, 26), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
+                format_cell(ws.cell(r, 25), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
+                format_cell(ws.cell(r, 26), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
+                format_cell(ws.cell(r, 27), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
+                format_cell(ws.cell(r, 28), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
+                format_cell(ws.cell(r, 29), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
+                format_cell(ws.cell(r, 30), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
                 ws.row_dimensions[r].height = 20
 
             if row_end >= row_start:
@@ -698,14 +729,14 @@ async def build_broad_market_workbook(target_date: str, output_path: str) -> str
                     end_type="num", end_value=0.03, end_color="86EFAC"
                 )
                 ws.conditional_formatting.add(f"F2:F{row_end}", color_scale)
-                ws.conditional_formatting.add(f"Q2:R{row_end}", color_scale)
-                ws.conditional_formatting.add(f"U2:W{row_end}", color_scale)
+                ws.conditional_formatting.add(f"U2:V{row_end}", color_scale)
+                ws.conditional_formatting.add(f"Y2:AA{row_end}", color_scale)
 
                 icon_set = IconSetRule("3Arrows", "num", [0, 0.0001], showValue=None, reverse=None)
                 ws.conditional_formatting.add(f"F2:F{row_end}", icon_set)
 
             ws.freeze_panes = "C2"
-            ws.auto_filter.ref = f"A1:Z{max(row_end, 1)}"
+            ws.auto_filter.ref = f"A1:AD{max(row_end, 1)}"
             auto_fit_columns(ws)
 
     wb.save(output_path)

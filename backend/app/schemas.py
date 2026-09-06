@@ -14,6 +14,10 @@ class Nifty50StockSchema(BaseModel):
     high: Optional[float] = None
     low: Optional[float] = None
     previous_close: Optional[float] = None
+    market_performance: Optional[float] = None
+    premarket: Optional[float] = None
+    recover_from_low: Optional[float] = None
+    distance_from_high: Optional[float] = None
     ltp: Optional[float] = None
     change: Optional[float] = None
     pct_change: Optional[float] = None
@@ -70,6 +74,10 @@ class IndexDailySchema(BaseModel):
     high: Optional[float] = None
     low: Optional[float] = None
     previous_close: Optional[float] = None
+    market_performance: Optional[float] = None
+    premarket: Optional[float] = None
+    recover_from_low: Optional[float] = None
+    distance_from_high: Optional[float] = None
     year_high: Optional[float] = None
     year_low: Optional[float] = None
     pe: Optional[float] = None
