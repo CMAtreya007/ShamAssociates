@@ -228,7 +228,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   IP: {clientIp}
                 </span>
               </div>
-              <p className="text-xs text-slate-500">Choose custom system location, persist auto-download paths in SQLite & LocalStorage</p>
             </div>
           </div>
 
