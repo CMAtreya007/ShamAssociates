@@ -292,15 +292,15 @@ class MasterExcelSyncManager:
                 elif c_i == 4:
                     format_cell(c, fill=row_fill, align=Alignment(horizontal="center"))
                 elif c_i in (5, 6, 7, 8, 13, 18, 19):
-                    format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="₹#,##0.00")
+                    format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
                 elif c_i in (9, 10, 11, 12, 14):
-                    format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="+₹#,##0.00;-₹#,##0.00;₹0.00")
+                    format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="+#,##0.00;-#,##0.00;0.00")
                 elif c_i in (15, 20, 21, 22, 23):
                     format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
                 elif c_i == 16:
                     format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0")
                 elif c_i in (17, 24):
-                    format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="₹#,##0.00")
+                    format_cell(c, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
                 else:
                     format_cell(c, fill=row_fill, align=Alignment(horizontal="center"))
 
@@ -374,15 +374,15 @@ class MasterExcelSyncManager:
                     if col_i == 1:
                         format_cell(c, align=Alignment(horizontal="center"), num_format="YYYY-MM-DD")
                     elif col_i in (2, 5, 6, 7, 10, 11):
-                        format_cell(c, align=Alignment(horizontal="right"), num_format="₹#,##0.00")
+                        format_cell(c, align=Alignment(horizontal="right"), num_format="#,##0.00")
                     elif col_i == 3:
-                        format_cell(c, align=Alignment(horizontal="right"), num_format="+₹#,##0.00;-₹#,##0.00;₹0.00")
+                        format_cell(c, align=Alignment(horizontal="right"), num_format="+#,##0.00;-#,##0.00;0.00")
                     elif col_i == 4:
                         format_cell(c, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
                     elif col_i == 8:
                         format_cell(c, align=Alignment(horizontal="right"), num_format="#,##0")
                     elif col_i == 9:
-                        format_cell(c, align=Alignment(horizontal="right"), num_format="₹#,##0.00")
+                        format_cell(c, align=Alignment(horizontal="right"), num_format="#,##0.00")
                     else:
                         format_cell(c)
                 ws_stock.row_dimensions[cur_row].height = 19

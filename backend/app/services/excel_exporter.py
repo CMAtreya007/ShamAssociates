@@ -7,7 +7,6 @@ from typing import Dict, Any, List, Optional, Tuple
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.formatting.rule import ColorScaleRule, DataBarRule, IconSetRule
 
 from sqlalchemy import select, asc, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -250,29 +249,9 @@ async def build_nifty50_workbook(target_date: str, output_path: str) -> str:
         format_cell(ws_overview.cell(r, 26), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="+0.00%;-0.00%;0.00%")
         ws_overview.row_dimensions[r].height = 20
 
-    if row_end >= row_start:
-        # ColorScaleRule on % Change (Col G) and 30D / 365D % Change (Col W / Col X)
-        color_scale = ColorScaleRule(
-            start_type="num", start_value=-0.05, start_color="FCA5A5",
-            mid_type="num", mid_value=0.0, mid_color="FFFFFF",
-            end_type="num", end_value=0.05, end_color="86EFAC"
-        )
-        ws_overview.conditional_formatting.add(f"G2:G{row_end}", color_scale)
-        ws_overview.conditional_formatting.add(f"W2:X{row_end}", color_scale)
-
-        # DataBarRule on Volume (Col P) & Turnover (Col Q)
-        data_bar_vol = DataBarRule(start_type="min", end_type="max", color="60A5FA", showValue="None", minLength=None, maxLength=None)
-        ws_overview.conditional_formatting.add(f"P2:P{row_end}", data_bar_vol)
-
-        data_bar_to = DataBarRule(start_type="min", end_type="max", color="93C5FD", showValue="None", minLength=None, maxLength=None)
-        ws_overview.conditional_formatting.add(f"Q2:Q{row_end}", data_bar_to)
-
-        # IconSetRule on % Change (Col G)
-        icon_set = IconSetRule("3Arrows", "num", [0, 0.0001], showValue=None, reverse=None)
-        ws_overview.conditional_formatting.add(f"G2:G{row_end}", icon_set)
-
     ws_overview.freeze_panes = "C2"
-    ws_overview.auto_filter.ref = f"A1:Z{max(row_end, 1)}"
+    if row_end >= 2:
+        ws_overview.auto_filter.ref = f"A1:Z{row_end}"
     auto_fit_columns(ws_overview)
 
     # ==========================================
@@ -280,7 +259,8 @@ async def build_nifty50_workbook(target_date: str, output_path: str) -> str:
     # ==========================================
     for stock in stocks:
         sym = stock.symbol
-        ws_stock = wb.create_sheet(title=sym[:31])
+        safe_sym = sym.replace("/", "-").replace("\\", "-").replace("?", "").replace("*", "").replace(":", "-").replace("[", "(").replace("]", ")")[:31]
+        ws_stock = wb.create_sheet(title=safe_sym)
         ws_stock.sheet_properties.tabColor = "3B82F6"  # Blue
         detail = details_map.get(sym)
 
@@ -722,21 +702,9 @@ async def build_broad_market_workbook(target_date: str, output_path: str) -> str
                 format_cell(ws.cell(r, 30), font=REGULAR_FONT, fill=row_fill, align=Alignment(horizontal="right"), num_format="#,##0.00")
                 ws.row_dimensions[r].height = 20
 
-            if row_end >= row_start:
-                color_scale = ColorScaleRule(
-                    start_type="num", start_value=-0.03, start_color="FCA5A5",
-                    mid_type="num", mid_value=0.0, mid_color="FFFFFF",
-                    end_type="num", end_value=0.03, end_color="86EFAC"
-                )
-                ws.conditional_formatting.add(f"F2:F{row_end}", color_scale)
-                ws.conditional_formatting.add(f"U2:V{row_end}", color_scale)
-                ws.conditional_formatting.add(f"Y2:AA{row_end}", color_scale)
-
-                icon_set = IconSetRule("3Arrows", "num", [0, 0.0001], showValue=None, reverse=None)
-                ws.conditional_formatting.add(f"F2:F{row_end}", icon_set)
-
             ws.freeze_panes = "C2"
-            ws.auto_filter.ref = f"A1:AD{max(row_end, 1)}"
+            if row_end >= 2:
+                ws.auto_filter.ref = f"A1:AD{row_end}"
             auto_fit_columns(ws)
 
     wb.save(output_path)
