@@ -775,11 +775,11 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
               <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600 uppercase tracking-wider select-none sticky top-0 z-10">
                 <tr>
                   {/* Star / Watchlist Bookmark Column */}
-                  <th className="py-3 px-3 text-center w-10">
+                  <th className="py-3 px-3 text-center w-10 sticky left-0 bg-slate-50 z-20">
                     <Star className="w-3.5 h-3.5 mx-auto text-slate-400" />
                   </th>
 
-                  <th onClick={() => handleSort("symbol")} className="py-3 px-4 cursor-pointer hover:text-slate-900 transition">
+                  <th onClick={() => handleSort("symbol")} className="py-3 px-4 cursor-pointer hover:text-slate-900 transition sticky left-10 bg-slate-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                     <div className="flex items-center gap-1.5">
                       <span>Company / Symbol</span>
                       <ArrowUpDown className="w-3 h-3 text-slate-400" />
@@ -934,7 +934,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                       className="hover:bg-slate-50/80 cursor-pointer transition-colors group select-none"
                     >
                       {/* 1-Click Star / Watchlist Toggle */}
-                      <td className="py-3 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className="py-3 px-3 text-center sticky left-0 bg-white group-hover:bg-slate-50 transition-colors z-10" onClick={(e) => e.stopPropagation()}>
                         <button
                           onClick={(e) => handleToggleWatchlist(stock, e)}
                           className={`p-1.5 rounded-lg transition cursor-pointer ${
@@ -949,7 +949,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                       </td>
 
                       {/* Symbol & Name */}
-                      <td className="py-3 px-4">
+                      <td className="py-3 px-4 sticky left-10 bg-white group-hover:bg-slate-50 transition-colors z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200/80 flex items-center justify-center font-bold text-xs text-emerald-800 font-mono flex-shrink-0">
                             {stock.symbol.slice(0, 2)}

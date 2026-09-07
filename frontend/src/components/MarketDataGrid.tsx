@@ -230,7 +230,7 @@ export const MarketDataGrid: React.FC<MarketDataGridProps> = ({
             {/* Table Header */}
             <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600 uppercase tracking-wider select-none sticky top-0 z-10">
               <tr>
-                <th onClick={() => handleSort("symbol")} className="py-3 px-4 cursor-pointer hover:text-slate-900 transition">
+                <th onClick={() => handleSort("symbol")} className="py-3 px-4 cursor-pointer hover:text-slate-900 transition sticky left-0 bg-slate-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                   <div className="flex items-center gap-1.5">
                     <span>Company / Symbol</span>
                     <ArrowUpDown className="w-3 h-3 text-slate-400" />
@@ -383,7 +383,7 @@ export const MarketDataGrid: React.FC<MarketDataGridProps> = ({
                       className="hover:bg-slate-50/80 cursor-pointer transition-colors group select-none"
                     >
                       {/* Symbol & Name */}
-                      <td className="py-3 px-4">
+                      <td className="py-3 px-4 sticky left-0 bg-white group-hover:bg-slate-50 transition-colors z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-xs text-slate-700 font-mono flex-shrink-0">
                             {stock.symbol.slice(0, 2)}

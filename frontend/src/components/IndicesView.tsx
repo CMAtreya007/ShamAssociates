@@ -110,7 +110,7 @@ export const IndicesView: React.FC<IndicesViewProps> = ({ category, selectedDate
             <table className="w-full text-left border-collapse text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600 uppercase tracking-wider select-none sticky top-0 z-10">
                 <tr>
-                  <th onClick={() => handleSort("index_name")} className="py-3 px-4 cursor-pointer hover:text-slate-900 transition">
+                  <th onClick={() => handleSort("index_name")} className="py-3 px-4 cursor-pointer hover:text-slate-900 transition sticky left-0 bg-slate-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                     <div className="flex items-center gap-1.5">
                       <span>Index Name</span>
                       <ArrowUpDown className="w-3 h-3 text-slate-400" />
@@ -225,7 +225,7 @@ export const IndicesView: React.FC<IndicesViewProps> = ({ category, selectedDate
 
                   return (
                     <tr key={idx.index_name} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3 px-4 font-bold text-slate-900">
+                      <td className="py-3 px-4 font-bold text-slate-900 sticky left-0 bg-white group-hover:bg-slate-50 transition-colors z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                         {idx.index_name}
                       </td>
 

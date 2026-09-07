@@ -18,7 +18,7 @@ import {
   triggerBackfill,
   getScheduleSettings
 } from "./services/api";
-import { Loader2 } from "lucide-react";
+import { Loader2, LayoutGrid, Star, PieChart, CalendarDays, Menu } from "lucide-react";
 
 // Code-split heavy secondary views and modal dialogs for instant sub-second initial load
 const IndicesView = lazy(() => import("./components/IndicesView").then(m => ({ default: m.IndicesView })));
@@ -341,7 +341,7 @@ export function App() {
         />
 
         {/* Center Main Dashboard Canvas */}
-        <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 bg-slate-50">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 pb-24 lg:pb-6 bg-slate-50">
           <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
             
             {/* 1. Screener/TailAdmin 4-Card Market Pulse Grid */}
@@ -401,6 +401,57 @@ export function App() {
         </main>
 
       </div>
+
+      {/* Mobile Bottom Quick-Navigation Dock (< lg screens) */}
+      <nav aria-label="Mobile Bottom Navigation" className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-2 py-1 flex items-center justify-around shadow-lg">
+        <button
+          onClick={() => setActiveView("nifty50")}
+          className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-xl transition cursor-pointer ${
+            activeView === "nifty50" ? "text-[#00B386] font-bold" : "text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <LayoutGrid className="w-4 h-4" />
+          <span className="text-[10px]">Nifty 50</span>
+        </button>
+
+        <button
+          onClick={() => setActiveView("custom_stocks")}
+          className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-xl transition cursor-pointer ${
+            activeView === "custom_stocks" ? "text-[#00B386] font-bold" : "text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <Star className="w-4 h-4" />
+          <span className="text-[10px]">Custom</span>
+        </button>
+
+        <button
+          onClick={() => setActiveView("sectoral")}
+          className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-xl transition cursor-pointer ${
+            ["sectoral", "thematic", "strategy", "broad"].includes(activeView) ? "text-[#00B386] font-bold" : "text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <PieChart className="w-4 h-4" />
+          <span className="text-[10px]">Indices</span>
+        </button>
+
+        <button
+          onClick={() => setActiveView("catalysts")}
+          className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-xl transition cursor-pointer ${
+            activeView === "catalysts" ? "text-[#00B386] font-bold" : "text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <CalendarDays className="w-4 h-4" />
+          <span className="text-[10px]">Catalysts</span>
+        </button>
+
+        <button
+          onClick={() => setIsMobileNavOpen(true)}
+          className="flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-xl text-slate-500 hover:text-slate-900 transition cursor-pointer"
+        >
+          <Menu className="w-4 h-4" />
+          <span className="text-[10px]">More</span>
+        </button>
+      </nav>
 
       {/* ⌘K Command Palette Modal */}
       <Suspense fallback={null}>
