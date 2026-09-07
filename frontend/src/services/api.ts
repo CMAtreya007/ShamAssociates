@@ -361,9 +361,10 @@ export async function downloadExportZip(
   if (onProgress) onProgress("Requesting server to build formatted Excel workbooks...");
   
   const token = tokenGetter();
-  let url = date ? `${API_BASE}/export/full?date=${encodeURIComponent(date)}` : `${API_BASE}/export/full`;
+  const activeUser = getActiveUsername();
+  let url = date ? `${API_BASE}/export/full?date=${encodeURIComponent(date)}&username=${encodeURIComponent(activeUser)}` : `${API_BASE}/export/full?username=${encodeURIComponent(activeUser)}`;
   if (token) {
-    url += (url.includes("?") ? "&" : "?") + `token=${encodeURIComponent(token)}`;
+    url += `&token=${encodeURIComponent(token)}`;
   }
 
   const res = await authFetch(url, { method: "POST" });
@@ -448,13 +449,48 @@ export async function uploadHistoricalExcelFiles(files: File[]): Promise<Ingesti
 
 // ================= CUSTOM STOCKS APIS =================
 
+export async function fetchAllNseStocks(
+  date?: string
+): Promise<CustomStockItem[]> {
+  const cacheKey = `all_nse_stocks_${date || "latest"}`;
+  return cachedFetch<CustomStockItem[]>(cacheKey, async () => {
+    let url = `${API_BASE}/data/all-nse-stocks`;
+    if (date) {
+      url += `?date=${encodeURIComponent(date)}`;
+    }
+    const res = await authFetch(url);
+    if (!res.ok) throw new Error("Failed to fetch all NSE equities");
+    return res.json();
+  }, 15000);
+}
+
+function getActiveUsername(): string {
+  if (typeof window !== "undefined") {
+    try {
+      const savedUser = localStorage.getItem("nse_terminal_auth_user");
+      if (savedUser) {
+        const parsed = JSON.parse(savedUser);
+        if (parsed?.username) return parsed.username;
+      }
+    } catch {
+      // fallback
+    }
+  }
+  return "admin";
+}
+
 export async function fetchCustomStocks(
   date?: string,
-  username: string = "admin"
+  username?: string,
+  mode: "watchlist" | "all" = "watchlist"
 ): Promise<CustomStockItem[]> {
-  const cacheKey = `custom_stocks:${username}:${date || "latest"}`;
+  if (mode === "all") {
+    return fetchAllNseStocks(date);
+  }
+  const effectiveUser = username || getActiveUsername();
+  const cacheKey = `custom_stocks:${effectiveUser}:${date || "latest"}`;
   return cachedFetch<CustomStockItem[]>(cacheKey, async () => {
-    let url = `${API_BASE}/data/custom-stocks?username=${encodeURIComponent(username)}`;
+    let url = `${API_BASE}/data/custom-stocks?username=${encodeURIComponent(effectiveUser)}`;
     if (date) {
       url += `&date=${encodeURIComponent(date)}`;
     }
@@ -467,10 +503,12 @@ export async function fetchCustomStocks(
 export async function addCustomStock(
   symbol: string,
   company_name?: string,
-  username: string = "admin"
+  username?: string
 ): Promise<{ success: boolean; message: string; symbol: string; company_name?: string }> {
+  const effectiveUser = username || getActiveUsername();
   invalidateApiCache("custom_stocks");
-  const res = await authFetch(`${API_BASE}/data/custom-stocks?username=${encodeURIComponent(username)}`, {
+  invalidateApiCache("all_nse_stocks");
+  const res = await authFetch(`${API_BASE}/data/custom-stocks?username=${encodeURIComponent(effectiveUser)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ symbol, company_name }),
@@ -484,10 +522,12 @@ export async function addCustomStock(
 
 export async function removeCustomStock(
   symbol: string,
-  username: string = "admin"
+  username?: string
 ): Promise<{ success: boolean; message: string }> {
+  const effectiveUser = username || getActiveUsername();
   invalidateApiCache("custom_stocks");
-  const res = await authFetch(`${API_BASE}/data/custom-stocks/${encodeURIComponent(symbol)}?username=${encodeURIComponent(username)}`, {
+  invalidateApiCache("all_nse_stocks");
+  const res = await authFetch(`${API_BASE}/data/custom-stocks/${encodeURIComponent(symbol)}?username=${encodeURIComponent(effectiveUser)}`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -509,10 +549,12 @@ export async function searchSymbols(query: string): Promise<SymbolSearchResult[]
 
 export async function downloadCustomStocksExcel(
   date?: string,
-  username: string = "admin"
+  username?: string,
+  mode: "watchlist" | "all" = "watchlist"
 ): Promise<{ filename: string; size: number }> {
+  const effectiveUser = username || getActiveUsername();
   const token = tokenGetter();
-  let url = `${API_BASE}/export/custom-stocks?username=${encodeURIComponent(username)}`;
+  let url = `${API_BASE}/export/custom-stocks?username=${encodeURIComponent(effectiveUser)}&mode=${encodeURIComponent(mode)}`;
   if (date) {
     url += `&date=${encodeURIComponent(date)}`;
   }

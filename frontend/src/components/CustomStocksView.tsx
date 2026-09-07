@@ -14,17 +14,24 @@ import {
   IndianRupee, 
   CalendarDays, 
   ChevronRight, 
+  ChevronLeft,
+  ChevronFirst,
+  ChevronLast,
   X, 
   Loader2,
   Sparkles,
   RefreshCw,
   Zap,
-  ShieldCheck
+  ShieldCheck,
+  Building2,
+  Filter,
+  CheckCircle2
 } from "lucide-react";
 import { toast } from "sonner";
 import { CustomStockItem, SymbolSearchResult } from "../types";
 import { 
   fetchCustomStocks, 
+  fetchAllNseStocks,
   addCustomStock, 
   removeCustomStock, 
   searchSymbols, 
@@ -38,9 +45,12 @@ interface CustomStocksViewProps {
 }
 
 type SortField = keyof CustomStockItem | "turnover_cr" | "day_range_pos" | "year_range_pos";
+type ViewMode = "watchlist" | "all";
+type CategoryFilter = "all" | "gainers" | "losers" | "volume" | "near_52w_high" | "near_52w_low";
 
-// Client-side in-memory cache for 0ms instant page loads across navigation
-const customStocksMemoryCache: Record<string, CustomStockItem[]> = {};
+// Client-side in-memory cache for 0ms instant tab switching
+const watchlistMemoryCache: Record<string, CustomStockItem[]> = {};
+const allNseMemoryCache: Record<string, CustomStockItem[]> = {};
 
 // Popular suggested stocks for 1-click quick add
 const POPULAR_SUGGESTIONS = [
@@ -49,13 +59,14 @@ const POPULAR_SUGGESTIONS = [
   { symbol: "HDFCBANK", name: "HDFC Bank Ltd.", industry: "Private Bank" },
   { symbol: "INFY", name: "Infosys Ltd.", industry: "IT Services" },
   { symbol: "ICICIBANK", name: "ICICI Bank Ltd.", industry: "Private Bank" },
+  { symbol: "TATACONSUM", name: "Tata Consumer Products Ltd.", industry: "FMCG / Beverages" },
   { symbol: "TATAMOTORS", name: "Tata Motors Ltd.", industry: "Automobile" },
   { symbol: "SBIN", name: "State Bank of India", industry: "Public Bank" },
   { symbol: "BHARTIARTL", name: "Bharti Airtel Ltd.", industry: "Telecom" },
   { symbol: "ITC", name: "ITC Ltd.", industry: "FMCG" },
   { symbol: "LT", name: "Larsen & Toubro Ltd.", industry: "Construction" },
   { symbol: "BAJFINANCE", name: "Bajaj Finance Ltd.", industry: "Financial Services" },
-  { symbol: "MARUTI", name: "Maruti Suzuki India Ltd.", industry: "Automobile" },
+  { symbol: "ZOMATO", name: "Zomato Ltd.", industry: "E-Commerce / Food" },
 ];
 
 export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
@@ -65,19 +76,33 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
 }) => {
   const cacheKey = selectedDate || "latest";
 
-  // Initial state retrieved from memory cache for 0ms sub-second rendering
-  const [stocks, setStocks] = useState<CustomStockItem[]>(() => {
-    return customStocksMemoryCache[cacheKey] || [];
+  // Tab mode: "watchlist" vs "all"
+  const [viewMode, setViewMode] = useState<ViewMode>("watchlist");
+
+  // Watchlist & All NSE Stocks state
+  const [watchlistStocks, setWatchlistStocks] = useState<CustomStockItem[]>(() => {
+    return watchlistMemoryCache[cacheKey] || [];
+  });
+  const [allStocks, setAllStocks] = useState<CustomStockItem[]>(() => {
+    return allNseMemoryCache[cacheKey] || [];
   });
   
-  const [isLoading, setIsLoading] = useState<boolean>(() => {
-    return !customStocksMemoryCache[cacheKey];
+  const [isLoadingWatchlist, setIsLoadingWatchlist] = useState<boolean>(() => {
+    return !watchlistMemoryCache[cacheKey];
+  });
+  const [isLoadingAll, setIsLoadingAll] = useState<boolean>(() => {
+    return !allNseMemoryCache[cacheKey];
   });
   
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [sortField, setSortField] = useState<SortField>("pct_change");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+
+  // Pagination state for smooth handling of 2,600+ items
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(50);
 
   // Add Stock Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -87,32 +112,68 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
   const [isAdding, setIsAdding] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
-  // Load Custom Stocks with SWR (Stale-While-Revalidate) pattern
-  const loadData = useCallback(async (isSilent = false) => {
-    if (!isSilent && stocks.length === 0) {
-      setIsLoading(true);
+  // Set of watchlist symbols for instantaneous O(1) bookmark status checks
+  const watchlistSymbolsSet = useMemo(() => {
+    return new Set(watchlistStocks.map((s) => s.symbol.toUpperCase().trim()));
+  }, [watchlistStocks]);
+
+  // Load Watchlist Data
+  const loadWatchlist = useCallback(async (isSilent = false) => {
+    if (!isSilent && watchlistStocks.length === 0) {
+      setIsLoadingWatchlist(true);
     } else {
       setIsRefreshing(true);
     }
 
     try {
-      const data = await fetchCustomStocks(selectedDate);
-      setStocks(data);
-      customStocksMemoryCache[cacheKey] = data;
+      const data = await fetchCustomStocks(selectedDate, undefined, "watchlist");
+      setWatchlistStocks(data);
+      watchlistMemoryCache[cacheKey] = data;
     } catch (err) {
-      console.error("Failed to load custom stocks:", err);
-      if (stocks.length === 0) {
+      console.error("Failed to load watchlist:", err);
+      if (watchlistStocks.length === 0) {
         toast.error("Could not load custom stocks watchlist");
       }
     } finally {
-      setIsLoading(false);
+      setIsLoadingWatchlist(false);
       setIsRefreshing(false);
     }
-  }, [selectedDate, cacheKey, stocks.length]);
+  }, [selectedDate, cacheKey, watchlistStocks.length]);
 
+  // Load All NSE Stocks
+  const loadAllNseStocks = useCallback(async (isSilent = false) => {
+    if (!isSilent && allStocks.length === 0) {
+      setIsLoadingAll(true);
+    } else {
+      setIsRefreshing(true);
+    }
+
+    try {
+      const data = await fetchAllNseStocks(selectedDate);
+      setAllStocks(data);
+      allNseMemoryCache[cacheKey] = data;
+    } catch (err) {
+      console.error("Failed to load all NSE stocks:", err);
+      if (allStocks.length === 0) {
+        toast.error("Could not load all NSE stocks");
+      }
+    } finally {
+      setIsLoadingAll(false);
+      setIsRefreshing(false);
+    }
+  }, [selectedDate, cacheKey, allStocks.length]);
+
+  // Initial load
   useEffect(() => {
-    loadData(stocks.length > 0);
-  }, [selectedDate]);
+    loadWatchlist(watchlistStocks.length > 0);
+  }, [selectedDate, loadWatchlist]);
+
+  // Trigger loading all stocks when user switches to "all" tab or in background
+  useEffect(() => {
+    if (viewMode === "all" && allStocks.length === 0) {
+      loadAllNseStocks(false);
+    }
+  }, [viewMode, allStocks.length, loadAllNseStocks]);
 
   // Autocomplete search debounce (150ms for snappy responsiveness)
   useEffect(() => {
@@ -136,6 +197,11 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
     return () => clearTimeout(timer);
   }, [addSearchQuery]);
 
+  // Reset to page 1 on search or filter change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, categoryFilter, viewMode, pageSize]);
+
   // Handle Add Stock with optimistic update
   const handleAddStock = async (symbol: string, companyName?: string) => {
     const cleanSym = symbol.trim().toUpperCase();
@@ -148,7 +214,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
       setAddSearchQuery("");
       setSearchResults([]);
       setIsAddModalOpen(false);
-      await loadData(true);
+      await loadWatchlist(true);
     } catch (err: any) {
       toast.error(err.message || `Failed to add ${cleanSym}`);
     } finally {
@@ -157,60 +223,94 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
   };
 
   // Handle Remove Stock with optimistic UI update
-  const handleRemoveStock = async (symbol: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const prevStocks = [...stocks];
+  const handleRemoveStock = async (symbol: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const prevWatchlist = [...watchlistStocks];
     // Optimistic removal
-    setStocks((prev) => {
+    setWatchlistStocks((prev) => {
       const updated = prev.filter((s) => s.symbol !== symbol);
-      customStocksMemoryCache[cacheKey] = updated;
+      watchlistMemoryCache[cacheKey] = updated;
       return updated;
     });
 
     try {
       await removeCustomStock(symbol);
-      toast.success(`Removed ${symbol} from Custom Stocks`);
+      toast.success(`Removed ${symbol} from Watchlist`);
     } catch (err: any) {
       // Revert optimistic update on failure
-      setStocks(prevStocks);
-      customStocksMemoryCache[cacheKey] = prevStocks;
+      setWatchlistStocks(prevWatchlist);
+      watchlistMemoryCache[cacheKey] = prevWatchlist;
       toast.error(err.message || `Failed to remove ${symbol}`);
+    }
+  };
+
+  // 1-Click Bookmark / Watchlist Toggle from Table Row
+  const handleToggleWatchlist = async (stock: CustomStockItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const sym = stock.symbol.toUpperCase().trim();
+    if (watchlistSymbolsSet.has(sym)) {
+      await handleRemoveStock(sym, e);
+    } else {
+      // Optimistically add to watchlist
+      const newWatchlistItem: CustomStockItem = { ...stock };
+      setWatchlistStocks((prev) => {
+        const updated = [...prev, newWatchlistItem];
+        watchlistMemoryCache[cacheKey] = updated;
+        return updated;
+      });
+
+      try {
+        await addCustomStock(sym, stock.company_name);
+        toast.success(`Added ${sym} to Watchlist`, {
+          icon: "⭐"
+        });
+      } catch (err: any) {
+        // Revert
+        setWatchlistStocks((prev) => prev.filter((s) => s.symbol !== sym));
+        toast.error(err.message || `Failed to add ${sym}`);
+      }
     }
   };
 
   // Handle Download Excel
   const handleDownloadExcel = async () => {
     setIsDownloading(true);
-    const toastId = toast.loading("Generating Custom Stocks Excel workbook...");
+    const modeLabel = viewMode === "all" ? "All 2,600+ NSE Equities" : "Custom Watchlist";
+    const toastId = toast.loading(`Generating ${modeLabel} Excel workbook...`);
     try {
-      const result = await downloadCustomStocksExcel(selectedDate);
+      const result = await downloadCustomStocksExcel(selectedDate, undefined, viewMode);
       toast.success("Excel Workbook Downloaded!", {
         id: toastId,
         description: `Saved ${result.filename} (${(result.size / 1024).toFixed(1)} KB)`
       });
     } catch (err: any) {
-      toast.error(err.message || "Failed to download custom stocks spreadsheet", { id: toastId });
+      toast.error(err.message || "Failed to download spreadsheet", { id: toastId });
     } finally {
       setIsDownloading(false);
     }
   };
 
+  // Active dataset depending on tab
+  const currentStocks = viewMode === "all" ? allStocks : watchlistStocks;
+  const isCurrentLoading = viewMode === "all" ? isLoadingAll : isLoadingWatchlist;
+
   // Summary Metrics
   const summary = useMemo(() => {
-    if (!stocks || stocks.length === 0) return null;
+    if (!currentStocks || currentStocks.length === 0) return null;
+
     let adv = 0, dec = 0, unch = 0;
-    let topGainer = stocks[0];
-    let topLoser = stocks[0];
+    let topGainer = currentStocks[0];
+    let topLoser = currentStocks[0];
     let totalTurnover = 0;
 
-    stocks.forEach((s) => {
+    currentStocks.forEach((s) => {
       const chg = s.pct_change || 0;
       if (chg > 0) adv++;
       else if (chg < 0) dec++;
       else unch++;
 
-      if ((s.pct_change || 0) > (topGainer.pct_change || 0)) topGainer = s;
-      if ((s.pct_change || 0) < (topLoser.pct_change || 0)) topLoser = s;
+      if ((s.pct_change || 0) > (topGainer?.pct_change || 0)) topGainer = s;
+      if ((s.pct_change || 0) < (topLoser?.pct_change || 0)) topLoser = s;
       if (s.turnover) totalTurnover += s.turnover;
     });
 
@@ -222,13 +322,13 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
       topLoser,
       totalTurnoverCr: totalTurnover / 10000000.0,
     };
-  }, [stocks]);
+  }, [currentStocks]);
 
   // Max volume for relative bar visualization
   const maxVolume = useMemo(() => {
-    if (!stocks || stocks.length === 0) return 1;
-    return Math.max(...stocks.map((s) => s.volume || 0), 1);
-  }, [stocks]);
+    if (!currentStocks || currentStocks.length === 0) return 1;
+    return Math.max(...currentStocks.map((s) => s.volume || 0), 1);
+  }, [currentStocks]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -239,16 +339,34 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
     }
   };
 
-  // Fast memoized filter and sort
+  // Fast memoized filter and sort across up to 2,652+ items
   const filteredAndSorted = useMemo(() => {
-    return stocks
+    return currentStocks
       .filter((s) => {
-        if (!search.trim()) return true;
-        const q = search.toLowerCase();
-        return (
-          s.symbol.toLowerCase().includes(q) ||
-          (s.company_name && s.company_name.toLowerCase().includes(q))
-        );
+        // 1. Text Search Filter
+        if (search.trim()) {
+          const q = search.toLowerCase().trim();
+          const matchSym = s.symbol.toLowerCase().includes(q);
+          const matchName = s.company_name && s.company_name.toLowerCase().includes(q);
+          const matchSeries = s.series && s.series.toLowerCase().includes(q);
+          if (!matchSym && !matchName && !matchSeries) return false;
+        }
+
+        // 2. Category Filter Chip
+        const pct = s.pct_change != null ? s.pct_change : 0;
+        if (categoryFilter === "gainers") {
+          return pct > 0;
+        } else if (categoryFilter === "losers") {
+          return pct < 0;
+        } else if (categoryFilter === "volume") {
+          return (s.volume || 0) > 100000;
+        } else if (categoryFilter === "near_52w_high") {
+          return s.near_wkh != null && Math.abs(s.near_wkh) <= 5.0;
+        } else if (categoryFilter === "near_52w_low") {
+          return s.near_wkl != null && Math.abs(s.near_wkl) <= 5.0;
+        }
+
+        return true;
       })
       .sort((a, b) => {
         let valA: any = a[sortField as keyof CustomStockItem];
@@ -277,24 +395,38 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
         }
         return sortDirection === "asc" ? valA - valB : valB - valA;
       });
-  }, [stocks, search, sortField, sortDirection]);
+  }, [currentStocks, search, categoryFilter, sortField, sortDirection]);
+
+  // Paginated Slice
+  const totalPages = pageSize === -1 ? 1 : Math.ceil(filteredAndSorted.length / pageSize) || 1;
+  const paginatedStocks = useMemo(() => {
+    if (pageSize === -1) return filteredAndSorted;
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredAndSorted.slice(startIndex, startIndex + pageSize);
+  }, [filteredAndSorted, currentPage, pageSize]);
 
   return (
     <div className="space-y-5">
       
-      {/* 1. Header Toolbar & Action Controls */}
+      {/* 1. Header Toolbar & Navigation Mode Toggle */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-card flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
         
         {/* Title & Badge */}
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200/80 flex items-center justify-center text-[#00B386] shadow-xs">
-            <Star className="w-5 h-5 fill-emerald-500 text-emerald-600" />
+            {viewMode === "all" ? (
+              <Building2 className="w-5 h-5 text-emerald-600" />
+            ) : (
+              <Star className="w-5 h-5 fill-emerald-500 text-emerald-600" />
+            )}
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-bold text-slate-900 font-sans">Custom Stocks Watchlist</h1>
+              <h1 className="text-base font-bold text-slate-900 font-sans">
+                {viewMode === "all" ? "All NSE Listed Equities" : "Custom Stocks Watchlist"}
+              </h1>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-[#00B386] border border-emerald-200/60 font-semibold">
-                {stocks.length} Tracked
+                {currentStocks.length > 0 ? `${currentStocks.length.toLocaleString()} Equities` : "Loading..."}
               </span>
               {isRefreshing && (
                 <span className="flex items-center gap-1 text-[10px] font-mono text-emerald-600 bg-emerald-50/80 px-2 py-0.5 rounded-md border border-emerald-200/50 animate-pulse">
@@ -304,46 +436,89 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
               )}
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Personalized watchlist with live intraday analytics, 4 performance indicators, and multi-sheet Excel export
+              {viewMode === "all" 
+                ? "Complete official NSE Equity universe (2,600+ stocks) with accurate exchange quotes, 4 performance indicators, and 1-click watchlist bookmarking"
+                : "Personalized watchlist with live intraday analytics, 4 performance indicators, and multi-sheet Excel export"
+              }
             </p>
           </div>
         </div>
 
-        {/* Action Buttons: Add Stock & Download Excel */}
+        {/* Action Controls & Tab Switcher */}
         <div className="flex items-center gap-2.5 flex-wrap">
-          <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#00B386] hover:bg-[#009b74] text-white text-xs font-semibold shadow-xs shadow-emerald-500/20 transition cursor-pointer"
-          >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>Add Stock</span>
-          </button>
+          
+          {/* Segmented View Switcher */}
+          <div className="inline-flex bg-slate-100 p-1 rounded-xl border border-slate-200/80 shadow-2xs">
+            <button
+              onClick={() => {
+                setViewMode("watchlist");
+                if (watchlistStocks.length === 0) loadWatchlist(false);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                viewMode === "watchlist"
+                  ? "bg-white text-slate-900 shadow-xs border border-slate-200/60"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Star className={`w-3.5 h-3.5 ${viewMode === "watchlist" ? "fill-amber-400 text-amber-500" : ""}`} />
+              <span>My Watchlist ({watchlistStocks.length})</span>
+            </button>
 
+            <button
+              onClick={() => {
+                setViewMode("all");
+                if (allStocks.length === 0) loadAllNseStocks(false);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                viewMode === "all"
+                  ? "bg-white text-slate-900 shadow-xs border border-slate-200/60"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span>All NSE Stocks ({allStocks.length > 0 ? allStocks.length : "2,600+"})</span>
+            </button>
+          </div>
+
+          {/* Add Stock Button (in Watchlist Mode) */}
+          {viewMode === "watchlist" && (
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#00B386] hover:bg-[#009b74] text-white text-xs font-semibold shadow-xs shadow-emerald-500/20 transition cursor-pointer"
+            >
+              <Plus className="w-4 h-4 stroke-[2.5]" />
+              <span>Add Stock</span>
+            </button>
+          )}
+
+          {/* Download Excel Button */}
           <button
             onClick={handleDownloadExcel}
-            disabled={isDownloading || stocks.length === 0}
+            disabled={isDownloading || currentStocks.length === 0}
             className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-xs transition disabled:opacity-50 cursor-pointer"
-            title="Download multi-sheet Excel workbook with Overview and individual stock tabs"
+            title={viewMode === "all" ? "Download all 2,600+ NSE stocks to formatted Excel" : "Download custom stocks watchlist to Excel"}
           >
             {isDownloading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <Download className="w-4 h-4" />
             )}
-            <span>Download Excel</span>
+            <span>{viewMode === "all" ? "Export All Stocks (Excel)" : "Download Excel"}</span>
           </button>
         </div>
 
       </div>
 
       {/* 2. Top Summary Stat Cards */}
-      {summary && stocks.length > 0 && (
+      {summary && currentStocks.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           
           {/* Advances / Declines */}
           <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center justify-between shadow-card">
             <div>
-              <p className="text-xs font-medium text-slate-500">Watchlist Breadth</p>
+              <p className="text-xs font-medium text-slate-500">
+                {viewMode === "all" ? "NSE Market Breadth" : "Watchlist Breadth"}
+              </p>
               <div className="flex items-center gap-3 mt-1.5">
                 <span className="text-lg font-bold text-emerald-600 font-mono">{summary.advances} <span className="text-xs font-sans text-slate-400 font-normal">Adv</span></span>
                 <span className="text-slate-300">/</span>
@@ -394,14 +569,16 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
             </div>
           </div>
 
-          {/* Watchlist Turnover */}
+          {/* Total Turnover */}
           <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center justify-between shadow-card">
             <div>
-              <p className="text-xs font-medium text-slate-500">Watchlist Turnover</p>
+              <p className="text-xs font-medium text-slate-500">
+                {viewMode === "all" ? "Total Traded Turnover" : "Watchlist Turnover"}
+              </p>
               <p className="text-lg font-bold text-slate-900 font-mono mt-1">
                 ₹ {(summary.totalTurnoverCr || 0).toLocaleString("en-IN", { maximumFractionDigits: 1 })} <span className="text-xs font-sans text-slate-400 font-normal">Cr</span>
               </p>
-              <p className="text-[11px] text-slate-400 mt-0.5">{stocks.length} Custom Stocks</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">{currentStocks.length.toLocaleString()} Equities Listed</p>
             </div>
             <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600">
               <IndianRupee className="w-5 h-5" />
@@ -411,51 +588,133 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
         </div>
       )}
 
-      {/* 3. Table Filter Search Toolbar */}
-      {stocks.length > 0 && (
-        <div className="flex items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-card">
-          <div className="relative w-full sm:w-80">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Filter custom stocks by symbol or company..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
-            />
-          </div>
-          <div className="flex items-center gap-3 text-xs text-slate-500 font-medium">
-            <span>
-              Showing <strong className="text-slate-900 font-mono">{filteredAndSorted.length}</strong> of {stocks.length} custom stocks
-            </span>
+      {/* 3. Filter Chips & Instant Search Bar */}
+      <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-card flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        
+        {/* Search input */}
+        <div className="relative w-full md:w-80">
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder={viewMode === "all" ? "Search all 2,600+ NSE stocks (TATACONSUM, RELIANCE, ZOMATO)..." : "Filter watchlist by symbol or company..."}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
+          />
+          {search && (
             <button
-              onClick={() => loadData(false)}
-              className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition"
-              title="Refresh custom stocks"
+              onClick={() => setSearch("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-md text-slate-400 hover:text-slate-600 transition"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-emerald-600" : ""}`} />
+              <X className="w-3 h-3" />
             </button>
-          </div>
+          )}
         </div>
-      )}
 
-      {/* 4. Table or Empty State */}
-      {isLoading ? (
+        {/* Category Filter Chips */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none flex-wrap">
+          <button
+            onClick={() => setCategoryFilter("all")}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              categoryFilter === "all"
+                ? "bg-slate-900 text-white"
+                : "bg-slate-100 hover:bg-slate-200 text-slate-600"
+            }`}
+          >
+            All ({currentStocks.length})
+          </button>
+
+          <button
+            onClick={() => setCategoryFilter("gainers")}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              categoryFilter === "gainers"
+                ? "bg-emerald-600 text-white"
+                : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/60"
+            }`}
+          >
+            <TrendingUp className="w-3 h-3" />
+            <span>Gainers</span>
+          </button>
+
+          <button
+            onClick={() => setCategoryFilter("losers")}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              categoryFilter === "losers"
+                ? "bg-rose-600 text-white"
+                : "bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/60"
+            }`}
+          >
+            <TrendingDown className="w-3 h-3" />
+            <span>Losers</span>
+          </button>
+
+          <button
+            onClick={() => setCategoryFilter("volume")}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              categoryFilter === "volume"
+                ? "bg-blue-600 text-white"
+                : "bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/60"
+            }`}
+          >
+            <BarChart3 className="w-3 h-3" />
+            <span>High Volume</span>
+          </button>
+
+          <button
+            onClick={() => setCategoryFilter("near_52w_high")}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              categoryFilter === "near_52w_high"
+                ? "bg-purple-600 text-white"
+                : "bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200/60"
+            }`}
+          >
+            <Zap className="w-3 h-3" />
+            <span>Near 52W High (≤5%)</span>
+          </button>
+
+          <button
+            onClick={() => setCategoryFilter("near_52w_low")}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              categoryFilter === "near_52w_low"
+                ? "bg-amber-600 text-white"
+                : "bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200/60"
+            }`}
+          >
+            <Sparkles className="w-3 h-3" />
+            <span>Near 52W Low (≤5%)</span>
+          </button>
+
+          {/* Refresh button */}
+          <button
+            onClick={() => viewMode === "all" ? loadAllNseStocks(false) : loadWatchlist(false)}
+            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition ml-auto"
+            title="Refresh market data"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-emerald-600" : ""}`} />
+          </button>
+        </div>
+
+      </div>
+
+      {/* 4. Table / Content Section */}
+      {isCurrentLoading ? (
         <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-card">
           <div className="space-y-4">
-            <div className="flex items-center justify-center gap-3 py-6">
+            <div className="flex items-center justify-center gap-3 py-8">
               <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
-              <span className="text-xs font-medium text-slate-600">Loading custom stocks data & live performance...</span>
+              <span className="text-xs font-medium text-slate-600">
+                {viewMode === "all" ? "Fetching complete official NSE Equity universe (2,600+ stocks)..." : "Loading custom stocks watchlist..."}
+              </span>
             </div>
             {/* Skeleton Table Rows */}
             <div className="space-y-2 animate-pulse">
-              {[1, 2, 3, 4, 5].map((n) => (
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
                 <div key={n} className="h-12 bg-slate-100/70 rounded-xl w-full" />
               ))}
             </div>
           </div>
         </div>
-      ) : stocks.length === 0 ? (
+      ) : currentStocks.length === 0 && viewMode === "watchlist" ? (
         <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-card space-y-6 max-w-2xl mx-auto my-6">
           <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200/80 flex items-center justify-center text-emerald-600 mx-auto shadow-xs">
             <Star className="w-7 h-7 fill-emerald-500/20 text-emerald-600" />
@@ -470,7 +729,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
           {/* Quick Add Suggestions */}
           <div className="pt-2 border-t border-slate-100">
             <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">
-              Quick Add Popular Blue-Chips
+              Quick Add Popular Equities
             </p>
             <div className="flex flex-wrap items-center justify-center gap-2">
               {POPULAR_SUGGESTIONS.map((item) => (
@@ -487,13 +746,24 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
             </div>
           </div>
 
-          <div className="pt-2">
+          <div className="pt-2 flex items-center justify-center gap-3">
             <button
               onClick={() => setIsAddModalOpen(true)}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#00B386] hover:bg-[#009b74] text-white text-xs font-semibold shadow-xs shadow-emerald-500/20 transition cursor-pointer"
             >
               <Search className="w-4 h-4" />
-              <span>Search & Add Other Stocks</span>
+              <span>Search & Add Stock</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setViewMode("all");
+                if (allStocks.length === 0) loadAllNseStocks(false);
+              }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition cursor-pointer"
+            >
+              <Building2 className="w-4 h-4 text-emerald-600" />
+              <span>Browse All 2,600+ Stocks</span>
             </button>
           </div>
         </div>
@@ -504,6 +774,11 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
               
               <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600 uppercase tracking-wider select-none sticky top-0 z-10">
                 <tr>
+                  {/* Star / Watchlist Bookmark Column */}
+                  <th className="py-3 px-3 text-center w-10">
+                    <Star className="w-3.5 h-3.5 mx-auto text-slate-400" />
+                  </th>
+
                   <th onClick={() => handleSort("symbol")} className="py-3 px-4 cursor-pointer hover:text-slate-900 transition">
                     <div className="flex items-center gap-1.5">
                       <span>Company / Symbol</span>
@@ -511,7 +786,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                     </div>
                   </th>
 
-                  <th className="py-3 px-4 text-left select-none min-w-[200px]">
+                  <th className="py-3 px-4 text-left select-none min-w-[180px]">
                     <div className="flex items-center gap-1.5 text-slate-700">
                       <CalendarDays className="w-3.5 h-3.5 text-emerald-600" />
                       <span>Key Catalyst / Action</span>
@@ -539,7 +814,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                     </div>
                   </th>
 
-                  {/* 4 Performance Indicators */}
+                  {/* 4 Calculated Performance Indicators */}
                   <th onClick={() => handleSort("market_performance")} className="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition hidden md:table-cell">
                     <div className="flex items-center justify-end gap-1">
                       <span>Mkt Perf</span>
@@ -624,7 +899,9 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
               </thead>
 
               <tbody className="divide-y divide-slate-100">
-                {filteredAndSorted.map((stock) => {
+                {paginatedStocks.map((stock) => {
+                  const sym = stock.symbol.toUpperCase().trim();
+                  const isBookmarked = watchlistSymbolsSet.has(sym);
                   const pct = stock.pct_change != null ? stock.pct_change : 0;
                   const isPos = pct > 0;
                   const isNeg = pct < 0;
@@ -656,6 +933,21 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                       onClick={() => onSelectStock(stock.symbol)}
                       className="hover:bg-slate-50/80 cursor-pointer transition-colors group select-none"
                     >
+                      {/* 1-Click Star / Watchlist Toggle */}
+                      <td className="py-3 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={(e) => handleToggleWatchlist(stock, e)}
+                          className={`p-1.5 rounded-lg transition cursor-pointer ${
+                            isBookmarked
+                              ? "text-amber-500 hover:bg-amber-50"
+                              : "text-slate-300 hover:text-amber-500 hover:bg-slate-100"
+                          }`}
+                          title={isBookmarked ? `Remove ${sym} from Watchlist` : `Add ${sym} to Watchlist`}
+                        >
+                          <Star className={`w-4 h-4 ${isBookmarked ? "fill-amber-400" : ""}`} />
+                        </button>
+                      </td>
+
                       {/* Symbol & Name */}
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
@@ -671,7 +963,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                                 </span>
                               )}
                             </div>
-                            <div className="text-[11px] text-slate-500 truncate max-w-[140px]">
+                            <div className="text-[11px] text-slate-500 truncate max-w-[150px]">
                               {stock.company_name || stock.symbol}
                             </div>
                           </div>
@@ -689,7 +981,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                             
                             return (
                               <div 
-                                className="flex items-center gap-1.5 max-w-[220px]"
+                                className="flex items-center gap-1.5 max-w-[200px]"
                                 title={`${cat.subject} (Ex: ${cat.ex_date || "-"})`}
                               >
                                 <span
@@ -872,13 +1164,15 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                             <ChevronRight className="w-4 h-4" />
                           </button>
 
-                          <button
-                            onClick={(e) => handleRemoveStock(stock.symbol, e)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                            title={`Remove ${stock.symbol} from Custom Stocks`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {viewMode === "watchlist" && (
+                            <button
+                              onClick={(e) => handleRemoveStock(stock.symbol, e)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                              title={`Remove ${stock.symbol} from Custom Stocks`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
 
@@ -889,10 +1183,79 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
 
             </table>
           </div>
+
+          {/* 5. Pagination Toolbar */}
+          <div className="bg-slate-50 border-t border-slate-200 px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600 select-none">
+            
+            <div className="flex items-center gap-2">
+              <span>Rows per page:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 focus:outline-none focus:border-emerald-500 font-medium"
+              >
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={250}>250</option>
+                <option value={500}>500</option>
+                <option value={-1}>All ({filteredAndSorted.length})</option>
+              </select>
+              <span className="text-slate-400">|</span>
+              <span>
+                Showing <strong className="text-slate-900 font-mono">{filteredAndSorted.length === 0 ? 0 : (currentPage - 1) * (pageSize === -1 ? filteredAndSorted.length : pageSize) + 1}</strong> - <strong className="text-slate-900 font-mono">{pageSize === -1 ? filteredAndSorted.length : Math.min(currentPage * pageSize, filteredAndSorted.length)}</strong> of <strong className="text-slate-900 font-mono">{filteredAndSorted.length}</strong> equities
+              </span>
+            </div>
+
+            {pageSize !== -1 && totalPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-600 transition cursor-pointer"
+                  title="First Page"
+                >
+                  <ChevronFirst className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-600 transition cursor-pointer"
+                  title="Previous Page"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+
+                <span className="px-2.5 py-1 text-xs font-mono font-semibold text-slate-800 bg-white border border-slate-200 rounded-lg">
+                  {currentPage} / {totalPages}
+                </span>
+
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-600 transition cursor-pointer"
+                  title="Next Page"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-600 transition cursor-pointer"
+                  title="Last Page"
+                >
+                  <ChevronLast className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+          </div>
+
         </div>
       )}
 
-      {/* 5. Modern Add Stock Modal Dialog */}
+      {/* 6. Add Stock Modal Dialog */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div 
@@ -907,7 +1270,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">Add Stock to Watchlist</h3>
-                  <p className="text-[11px] text-slate-500">Search by NSE symbol or company name</p>
+                  <p className="text-[11px] text-slate-500">Search by symbol across all 2,600+ NSE Equities</p>
                 </div>
               </div>
               <button
@@ -925,7 +1288,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                 <input
                   type="text"
                   autoFocus
-                  placeholder="Type symbol (e.g. ZOMATO, TATAELXSI, IRFC, TCS)..."
+                  placeholder="Type symbol (e.g. TATACONSUM, SWIGGY, ZOMATO, RELIANCE, TCS)..."
                   value={addSearchQuery}
                   onChange={(e) => setAddSearchQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -945,7 +1308,7 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
             <div className="flex-1 overflow-y-auto p-3 space-y-1 divide-y divide-slate-100 max-h-80">
               {addSearchQuery.trim() && searchResults.length === 0 && !isSearching ? (
                 <div className="p-6 text-center space-y-3">
-                  <p className="text-xs text-slate-500">No exact database match for "{addSearchQuery}".</p>
+                  <p className="text-xs text-slate-500">No exact cached match for "{addSearchQuery}".</p>
                   <button
                     onClick={() => handleAddStock(addSearchQuery.trim())}
                     disabled={isAdding}
@@ -957,7 +1320,8 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                 </div>
               ) : searchResults.length > 0 ? (
                 searchResults.map((item) => {
-                  const alreadyAdded = stocks.some((s) => s.symbol === item.symbol);
+                  const sym = item.symbol.toUpperCase().trim();
+                  const alreadyAdded = watchlistSymbolsSet.has(sym);
                   return (
                     <div
                       key={item.symbol}
@@ -1001,7 +1365,8 @@ export const CustomStocksView: React.FC<CustomStocksViewProps> = ({
                   </p>
                   <div className="space-y-1">
                     {POPULAR_SUGGESTIONS.map((item) => {
-                      const alreadyAdded = stocks.some((s) => s.symbol === item.symbol);
+                      const sym = item.symbol.toUpperCase().trim();
+                      const alreadyAdded = watchlistSymbolsSet.has(sym);
                       return (
                         <div
                           key={item.symbol}

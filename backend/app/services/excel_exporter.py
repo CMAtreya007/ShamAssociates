@@ -107,10 +107,18 @@ def render_stock_detail_sheet(
     detail: Any,
     stock_ca_all: List[Any]
 ):
-    t_info = (detail.trade_info if detail and isinstance(detail.trade_info, dict) else {})
-    p_info = (detail.price_info if detail and isinstance(detail.price_info, dict) else {})
-    s_info = (detail.security_info if detail and isinstance(detail.security_info, dict) else {})
-    m_data = (detail.meta_data if detail and isinstance(detail.meta_data, dict) else {})
+    if hasattr(detail, "trade_info"):
+        t_info = detail.trade_info if isinstance(detail.trade_info, dict) else {}
+        p_info = detail.price_info if isinstance(detail.price_info, dict) else {}
+        s_info = detail.security_info if isinstance(detail.security_info, dict) else {}
+        m_data = detail.meta_data if isinstance(detail.meta_data, dict) else {}
+    elif isinstance(detail, dict):
+        t_info = detail.get("tradeInfo") if isinstance(detail.get("tradeInfo"), dict) else {}
+        p_info = detail.get("priceInfo") if isinstance(detail.get("priceInfo"), dict) else {}
+        s_info = detail.get("secInfo") if isinstance(detail.get("secInfo"), dict) else (detail.get("securityInfo") if isinstance(detail.get("securityInfo"), dict) else {})
+        m_data = detail.get("metaData") if isinstance(detail.get("metaData"), dict) else {}
+    else:
+        t_info, p_info, s_info, m_data = {}, {}, {}, {}
 
     # Header Title Banner
     ws_stock.merge_cells("A1:D1")
@@ -756,60 +764,72 @@ async def build_broad_market_workbook(target_date: str, output_path: str) -> str
     wb.save(output_path)
     return output_path
 
-async def build_custom_stocks_workbook(target_date: str, output_path: str, username: str = "admin") -> str:
-    """Generates custom_stocks_YYYY-MM-DD.xlsx with corporate actions & exhaustive metrics from NSE for the user's watchlist."""
+async def build_custom_stocks_workbook(target_date: str, output_path: str, username: str = "admin", mode: str = "watchlist") -> str:
+    """Generates custom_stocks_YYYY-MM-DD.xlsx with corporate actions & exhaustive metrics from NSE for watchlist or all 2,600+ equities."""
     wb = openpyxl.Workbook()
     
     # SHEET 1: CUSTOM STOCKS OVERVIEW
     ws_overview = wb.active
-    ws_overview.title = "Custom Stocks Overview"
+    ws_overview.title = "All NSE Equities" if mode == "all" else "Custom Stocks Overview"
     ws_overview.sheet_properties.tabColor = "00B386"  # Emerald
 
     fetcher = NSEFetcher()
+    symbols_list = []
+    company_names_map = {}
+    details_map = {}
+    n50_map = {}
+    actions_by_symbol: Dict[str, List[CorporateAction]] = {}
+
     async with AsyncSessionLocal() as db:
-        q_watch = await db.execute(
-            select(CustomStockWatchlist).where(CustomStockWatchlist.username == username).order_by(asc(CustomStockWatchlist.created_at))
-        )
-        watchlist_items = q_watch.scalars().all()
-        if not watchlist_items and username != "admin":
-            q_watch_admin = await db.execute(
-                select(CustomStockWatchlist).where(CustomStockWatchlist.username == "admin").order_by(asc(CustomStockWatchlist.created_at))
+        if mode == "all":
+            bhav_map = await asyncio.to_thread(fetcher.fetch_full_market_bhavcopy, target_date)
+            symbols_list = list(bhav_map.keys())
+            for sym, item in bhav_map.items():
+                company_names_map[sym] = item.get("companyName") or sym
+        else:
+            q_watch = await db.execute(
+                select(CustomStockWatchlist).where(CustomStockWatchlist.username == username).order_by(asc(CustomStockWatchlist.created_at))
             )
-            watchlist_items = q_watch_admin.scalars().all()
-
-        symbols_list = [w.symbol.upper().strip() for w in watchlist_items]
-        company_names_map = {w.symbol.upper().strip(): w.company_name for w in watchlist_items}
-
-        # Check Nifty50Daily table
-        q_n50 = await db.execute(
-            select(Nifty50Daily).where(Nifty50Daily.date == target_date, Nifty50Daily.symbol.in_(symbols_list))
-        )
-        n50_map = {s.symbol: s for s in q_n50.scalars().all()}
-
-        # Check StockDetailDaily table for target date
-        q_det = await db.execute(
-            select(StockDetailDaily).where(StockDetailDaily.date == target_date, StockDetailDaily.symbol.in_(symbols_list))
-        )
-        details_map = {d.symbol: d for d in q_det.scalars().all()}
-
-        # For any missing details, check latest available date in DB
-        for s in symbols_list:
-            if s not in details_map:
-                q_any = await db.execute(
-                    select(StockDetailDaily).where(StockDetailDaily.symbol == s).order_by(desc(StockDetailDaily.date)).limit(1)
+            watchlist_items = q_watch.scalars().all()
+            if not watchlist_items and username != "admin":
+                q_watch_admin = await db.execute(
+                    select(CustomStockWatchlist).where(CustomStockWatchlist.username == "admin").order_by(asc(CustomStockWatchlist.created_at))
                 )
-                any_d = q_any.scalars().first()
-                if any_d:
-                    details_map[s] = any_d
+                watchlist_items = q_watch_admin.scalars().all()
 
-        # Corporate actions for all watchlist symbols
-        q_ca = await db.execute(
-            select(CorporateAction).where(CorporateAction.symbol.in_(symbols_list)).order_by(asc(CorporateAction.priority_level), desc(CorporateAction.ex_date))
-        )
-        all_actions = q_ca.scalars().all()
-        actions_by_symbol: Dict[str, List[CorporateAction]] = {}
-        for a in all_actions:
-            actions_by_symbol.setdefault(a.symbol, []).append(a)
+            symbols_list = [w.symbol.upper().strip() for w in watchlist_items]
+            company_names_map = {w.symbol.upper().strip(): w.company_name for w in watchlist_items}
+
+            # Check Nifty50Daily table
+            q_n50 = await db.execute(
+                select(Nifty50Daily).where(Nifty50Daily.date == target_date, Nifty50Daily.symbol.in_(symbols_list))
+            )
+            n50_map = {s.symbol: s for s in q_n50.scalars().all()}
+
+            # Check StockDetailDaily table for target date
+            q_det = await db.execute(
+                select(StockDetailDaily).where(StockDetailDaily.date == target_date, StockDetailDaily.symbol.in_(symbols_list))
+            )
+            details_map = {d.symbol: d for d in q_det.scalars().all()}
+
+            # For any missing details, check latest available date in DB
+            for s in symbols_list:
+                if s not in details_map:
+                    q_any = await db.execute(
+                        select(StockDetailDaily).where(StockDetailDaily.symbol == s).order_by(desc(StockDetailDaily.date)).limit(1)
+                    )
+                    any_d = q_any.scalars().first()
+                    if any_d:
+                        details_map[s] = any_d
+
+        # Corporate actions for all symbols
+        if symbols_list:
+            q_ca = await db.execute(
+                select(CorporateAction).where(CorporateAction.symbol.in_(symbols_list[:300])).order_by(asc(CorporateAction.priority_level), desc(CorporateAction.ex_date))
+            )
+            all_actions = q_ca.scalars().all()
+            for a in all_actions:
+                actions_by_symbol.setdefault(a.symbol, []).append(a)
 
     headers = [
         "Date", "Symbol", "Company Name", "Series", "LTP (₹)", "Change (₹)", "% Change",
@@ -844,129 +864,178 @@ async def build_custom_stocks_workbook(target_date: str, output_path: str, usern
         return output_path
 
     stocks_meta = []
-    for sym in symbols_list:
-        n50 = n50_map.get(sym)
-        det = details_map.get(sym)
-        c_name = company_names_map.get(sym) or (n50.company_name if n50 else (det.company_name if det else sym))
-        
-        ltp = None
-        open_val = None
-        high = None
-        low = None
-        prev_close = None
-        change = None
-        pct_change = None
-        volume = None
-        turnover = None
-        ffmc = None
-        year_high = None
-        year_low = None
-        p30 = None
-        p365 = None
-        near_h = None
-        near_l = None
-        series = "EQ"
-        
-        if n50:
-            ltp = n50.ltp
-            open_val = n50.open
-            high = n50.high
-            low = n50.low
-            prev_close = n50.previous_close
-            change = n50.change
-            pct_change = n50.pct_change
-            volume = n50.volume
-            turnover = n50.turnover
-            ffmc = n50.ffmc
-            year_high = n50.year_high
-            year_low = n50.year_low
-            p30 = n50.per_change_30d
-            p365 = n50.per_change_365d
-            near_h = n50.near_wkh
-            near_l = n50.near_wkl
-            series = n50.series or "EQ"
-        elif det:
-            p_info = det.price_info if isinstance(det.price_info, dict) else {}
-            t_info = det.trade_info if isinstance(det.trade_info, dict) else {}
-            m_info = det.meta_data if isinstance(det.meta_data, dict) else {}
-            ltp = safe_float(p_info.get("lastPrice") or p_info.get("close") or m_info.get("lastPrice"))
-            open_val = safe_float(p_info.get("open") or m_info.get("open"))
-            high = safe_float(p_info.get("intraDayHighLow", {}).get("max") or p_info.get("high") or m_info.get("dayHigh"))
-            low = safe_float(p_info.get("intraDayHighLow", {}).get("min") or p_info.get("low") or m_info.get("dayLow"))
-            prev_close = safe_float(p_info.get("previousClose") or m_info.get("previousClose"))
-            change = safe_float(p_info.get("change") or m_info.get("change"))
-            pct_change = safe_float(p_info.get("pChange") or m_info.get("pChange"))
-            volume = det.total_volume or safe_float(t_info.get("totalTradedVolume") or t_info.get("totalVolume"))
-            turnover = det.total_turnover or safe_float(t_info.get("totalTradedValue") or t_info.get("totalTurnover"))
-            ffmc = det.free_float_mcap or safe_float(t_info.get("ffmc") or t_info.get("totalMarketCap"))
-            year_high = safe_float(p_info.get("weekHighLow", {}).get("max") or p_info.get("yearHigh"))
-            year_low = safe_float(p_info.get("weekHighLow", {}).get("min") or p_info.get("yearLow"))
-            p30 = safe_float(p_info.get("perChange30d"))
-            p365 = safe_float(p_info.get("perChange365d"))
-            near_h = safe_float(p_info.get("nearWKH"))
-            near_l = safe_float(p_info.get("nearWKL"))
-            series = str(m_info.get("series") or "EQ")
-        else:
-            try:
-                eq_detail = fetcher.fetch_stock_details(sym)
-                if eq_detail:
-                    p_info = eq_detail.get("priceInfo") or {}
-                    t_info = eq_detail.get("tradeInfo") or {}
-                    m_info = eq_detail.get("metaData") or {}
-                    c_name = m_info.get("companyName") or c_name
-                    ltp = safe_float(p_info.get("lastPrice") or p_info.get("close"))
-                    open_val = safe_float(p_info.get("open"))
-                    high = safe_float(p_info.get("intraDayHighLow", {}).get("max") or p_info.get("high"))
-                    low = safe_float(p_info.get("intraDayHighLow", {}).get("min") or p_info.get("low"))
-                    prev_close = safe_float(p_info.get("previousClose"))
-                    change = safe_float(p_info.get("change"))
-                    pct_change = safe_float(p_info.get("pChange"))
-                    volume = safe_float(t_info.get("totalTradedVolume") or t_info.get("totalVolume"))
-                    turnover = safe_float(t_info.get("totalTradedValue") or t_info.get("totalTurnover"))
-                    ffmc = safe_float(t_info.get("ffmc") or t_info.get("totalMarketCap"))
-                    year_high = safe_float(p_info.get("weekHighLow", {}).get("max") or p_info.get("yearHigh"))
-                    year_low = safe_float(p_info.get("weekHighLow", {}).get("min") or p_info.get("yearLow"))
-                    p30 = safe_float(p_info.get("perChange30d"))
-                    p365 = safe_float(p_info.get("perChange365d"))
-                    near_h = safe_float(p_info.get("nearWKH"))
-                    near_l = safe_float(p_info.get("nearWKL"))
-                    series = str(m_info.get("series") or "EQ")
-            except Exception:
-                pass
+    if mode == "all":
+        bhav_map = fetcher.fetch_full_market_bhavcopy(target_date)
+        for sym, item in bhav_map.items():
+            ltp = item.get("lastPrice")
+            prev_close = item.get("previousClose")
+            open_val = item.get("open")
+            high = item.get("dayHigh")
+            low = item.get("dayLow")
+            change = item.get("change")
+            pct_change = item.get("pChange")
+            volume = item.get("totalTradedVolume")
+            turnover = item.get("totalTradedValue")
+            yh = item.get("yearHigh")
+            yl = item.get("yearLow")
+            p30 = item.get("perChange30d")
+            p365 = item.get("perChange365d")
+            near_h = item.get("nearWKH")
+            near_l = item.get("nearWKL")
 
-        if ltp is not None and prev_close is not None and prev_close > 0:
-            if change is None:
-                change = round(ltp - prev_close, 2)
-            if pct_change is None:
-                pct_change = round(((ltp - prev_close) / prev_close) * 100, 2)
+            stocks_meta.append({
+                "symbol": sym,
+                "company_name": item.get("companyName") or sym,
+                "series": item.get("series") or "EQ",
+                "ltp": ltp,
+                "open": open_val,
+                "high": high,
+                "low": low,
+                "previous_close": prev_close,
+                "change": change,
+                "pct_change": pct_change,
+                "volume": volume,
+                "turnover": turnover,
+                "ffmc": item.get("ffmc"),
+                "year_high": yh,
+                "year_low": yl,
+                "per_change_30d": p30,
+                "per_change_365d": p365,
+                "near_wkh": near_h,
+                "near_wkl": near_l,
+                "detail": None
+            })
+    else:
+        for sym in symbols_list:
+            n50 = n50_map.get(sym)
+            det = details_map.get(sym)
+            c_name = company_names_map.get(sym) or (n50.company_name if n50 else (det.company_name if det else sym))
+            
+            ltp = None
+            open_val = None
+            high = None
+            low = None
+            prev_close = None
+            change = None
+            pct_change = None
+            volume = None
+            turnover = None
+            ffmc = None
+            year_high = None
+            year_low = None
+            p30 = None
+            p365 = None
+            near_h = None
+            near_l = None
+            series = "EQ"
+            eq_detail = None
+            
+            if n50:
+                ltp = n50.ltp
+                open_val = n50.open
+                high = n50.high
+                low = n50.low
+                prev_close = n50.previous_close
+                change = n50.change
+                pct_change = n50.pct_change
+                volume = n50.volume
+                turnover = n50.turnover
+                ffmc = n50.ffmc
+                year_high = n50.year_high
+                year_low = n50.year_low
+                p30 = n50.per_change_30d
+                p365 = n50.per_change_365d
+                near_h = n50.near_wkh
+                near_l = n50.near_wkl
+                series = n50.series or "EQ"
+            elif det:
+                p_info = det.price_info if isinstance(det.price_info, dict) else {}
+                t_info = det.trade_info if isinstance(det.trade_info, dict) else {}
+                m_info = det.meta_data if isinstance(det.meta_data, dict) else {}
+                intra = p_info.get("intraDayHighLow") if isinstance(p_info.get("intraDayHighLow"), dict) else {}
+                week = p_info.get("weekHighLow") if isinstance(p_info.get("weekHighLow"), dict) else {}
 
-        if near_h is None and ltp is not None and year_high is not None and year_high > 0:
-            near_h = round(((ltp - year_high) / year_high) * 100, 2)
-        if near_l is None and ltp is not None and year_low is not None and year_low > 0:
-            near_l = round(((ltp - year_low) / year_low) * 100, 2)
+                ltp = safe_float(p_info.get("lastPrice") or p_info.get("close") or m_info.get("lastPrice"))
+                open_val = safe_float(p_info.get("open") or m_info.get("open"))
+                high = safe_float(intra.get("max") or p_info.get("high") or m_info.get("dayHigh"))
+                low = safe_float(intra.get("min") or p_info.get("low") or m_info.get("dayLow"))
+                prev_close = safe_float(p_info.get("previousClose") or m_info.get("previousClose"))
+                change = safe_float(p_info.get("change") or m_info.get("change"))
+                pct_change = safe_float(p_info.get("pChange") or m_info.get("pChange"))
+                volume = det.total_volume or safe_float(t_info.get("totalTradedVolume") or t_info.get("totalVolume"))
+                turnover = det.total_turnover or safe_float(t_info.get("totalTradedValue") or t_info.get("totalTurnover"))
+                ffmc = det.free_float_mcap or safe_float(t_info.get("ffmc") or t_info.get("totalMarketCap"))
+                year_high = safe_float(week.get("max") or p_info.get("yearHigh"))
+                year_low = safe_float(week.get("min") or p_info.get("yearLow"))
+                p30 = safe_float(p_info.get("perChange30d"))
+                p365 = safe_float(p_info.get("perChange365d"))
+                near_h = safe_float(p_info.get("nearWKH"))
+                near_l = safe_float(p_info.get("nearWKL"))
+                series = str(m_info.get("series") or "EQ")
+            else:
+                try:
+                    eq_detail = fetcher.fetch_live_stock_quote(sym) or fetcher.fetch_stock_details(sym)
+                    if eq_detail:
+                        p_info = eq_detail.get("priceInfo") if isinstance(eq_detail.get("priceInfo"), dict) else {}
+                        t_info = eq_detail.get("tradeInfo") if isinstance(eq_detail.get("tradeInfo"), dict) else {}
+                        m_info = eq_detail.get("metaData") if isinstance(eq_detail.get("metaData"), dict) else {}
+                        intra = p_info.get("intraDayHighLow") if isinstance(p_info.get("intraDayHighLow"), dict) else {}
+                        week = p_info.get("weekHighLow") if isinstance(p_info.get("weekHighLow"), dict) else {}
 
-        stocks_meta.append({
-            "symbol": sym,
-            "company_name": c_name,
-            "series": series,
-            "ltp": ltp,
-            "open": open_val,
-            "high": high,
-            "low": low,
-            "previous_close": prev_close,
-            "change": change,
-            "pct_change": pct_change,
-            "volume": volume,
-            "turnover": turnover,
-            "ffmc": ffmc,
-            "year_high": year_high,
-            "year_low": year_low,
-            "per_change_30d": p30,
-            "per_change_365d": p365,
-            "near_wkh": near_h,
-            "near_wkl": near_l,
-            "detail": det
-        })
+                        c_name = eq_detail.get("companyName") or m_info.get("companyName") or c_name
+                        ltp = safe_float(eq_detail.get("lastPrice") or p_info.get("lastPrice") or p_info.get("close"))
+                        open_val = safe_float(eq_detail.get("open") or p_info.get("open"))
+                        high = safe_float(eq_detail.get("dayHigh") or intra.get("max") or p_info.get("high"))
+                        low = safe_float(eq_detail.get("dayLow") or intra.get("min") or p_info.get("low"))
+                        prev_close = safe_float(eq_detail.get("previousClose") or p_info.get("previousClose"))
+                        change = safe_float(eq_detail.get("change") or p_info.get("change"))
+                        pct_change = safe_float(eq_detail.get("pChange") or p_info.get("pChange"))
+                        volume = safe_float(eq_detail.get("totalTradedVolume") or t_info.get("totalTradedVolume") or t_info.get("totalVolume"))
+                        turnover = safe_float(eq_detail.get("totalTradedValue") or t_info.get("totalTradedValue") or t_info.get("totalTurnover"))
+                        ffmc = safe_float(eq_detail.get("ffmc") or t_info.get("ffmc") or t_info.get("totalMarketCap"))
+                        year_high = safe_float(eq_detail.get("yearHigh") or week.get("max") or p_info.get("yearHigh"))
+                        year_low = safe_float(eq_detail.get("yearLow") or week.get("min") or p_info.get("yearLow"))
+                        p30 = safe_float(eq_detail.get("perChange30d") or p_info.get("perChange30d"))
+                        p365 = safe_float(eq_detail.get("perChange365d") or p_info.get("perChange365d"))
+                        near_h = safe_float(eq_detail.get("nearWKH") or p_info.get("nearWKH"))
+                        near_l = safe_float(eq_detail.get("nearWKL") or p_info.get("nearWKL"))
+                        series = str(eq_detail.get("series") or m_info.get("series") or "EQ")
+                except Exception:
+                    pass
+
+            if ltp is not None and prev_close is not None and prev_close > 0:
+                if change is None:
+                    change = round(ltp - prev_close, 2)
+                if pct_change is None:
+                    pct_change = round(((ltp - prev_close) / prev_close) * 100, 2)
+
+            if near_h is None and ltp is not None and year_high is not None and year_high > 0:
+                near_h = round(((ltp - year_high) / year_high) * 100, 2)
+            if near_l is None and ltp is not None and year_low is not None and year_low > 0:
+                near_l = round(((ltp - year_low) / year_low) * 100, 2)
+
+            stocks_meta.append({
+                "symbol": sym,
+                "company_name": c_name,
+                "series": series,
+                "ltp": ltp,
+                "open": open_val,
+                "high": high,
+                "low": low,
+                "previous_close": prev_close,
+                "change": change,
+                "pct_change": pct_change,
+                "volume": volume,
+                "turnover": turnover,
+                "ffmc": ffmc,
+                "year_high": year_high,
+                "year_low": year_low,
+                "per_change_30d": p30,
+                "per_change_365d": p365,
+                "near_wkh": near_h,
+                "near_wkl": near_l,
+                "detail": det or eq_detail
+            })
 
     row_start = 2
     for s in stocks_meta:
@@ -1070,8 +1139,9 @@ async def build_custom_stocks_workbook(target_date: str, output_path: str, usern
         ws_overview.auto_filter.ref = f"A1:Z{row_end}"
     auto_fit_columns(ws_overview)
 
-    # INDIVIDUAL STOCK SHEETS
-    for s in stocks_meta:
+    # INDIVIDUAL STOCK SHEETS (top 30 when mode="all", or all watchlist items)
+    individual_sheets_list = stocks_meta[:30] if mode == "all" else stocks_meta
+    for s in individual_sheets_list:
         sym = s["symbol"]
         safe_sym = sym.replace("/", "-").replace("\\", "-").replace("?", "").replace("*", "").replace(":", "-").replace("[", "(").replace("]", ")")[:31]
         ws_stock = wb.create_sheet(title=safe_sym)

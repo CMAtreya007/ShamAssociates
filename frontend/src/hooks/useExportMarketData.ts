@@ -14,8 +14,17 @@ export function useExportMarketData() {
 
       const dateStr = selectedDate || new Date().toISOString().split("T")[0];
 
+      const userStr = localStorage.getItem("nse_terminal_auth_user");
+      let username = "admin";
+      if (userStr) {
+        try {
+          const parsed = JSON.parse(userStr);
+          if (parsed?.username) username = parsed.username;
+        } catch {}
+      }
+
       const token = localStorage.getItem("nse_terminal_auth_token");
-      let url = `${API_BASE}/export/full?date=${encodeURIComponent(dateStr)}`;
+      let url = `${API_BASE}/export/full?date=${encodeURIComponent(dateStr)}&username=${encodeURIComponent(username)}`;
       if (token) {
         url += `&token=${encodeURIComponent(token)}`;
       }

@@ -529,15 +529,117 @@ async def get_indices_by_category(
     ram_cache.set(cache_key, res, ttl=30.0)
     return res
 
+@router.get("/all-nse-stocks", response_model=List[CustomStockItemSchema])
+async def get_all_nse_stocks_data(
+    date: Optional[str] = Query(None, description="Trade date in YYYY-MM-DD format"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns the complete official NSE Equity universe (all 2,652+ listed stocks)
+    with accurate OHLCV, 4 performance indicators, 52-week ranges, and catalyst actions.
+    """
+    cache_key = f"all_nse_stocks:{date or 'latest'}"
+    cached = ram_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    fetcher = NSEFetcher()
+    bhav_map = await asyncio.to_thread(fetcher.fetch_full_market_bhavcopy, date)
+    if not bhav_map:
+        return []
+
+    # Get all active corporate actions to link catalysts
+    q_ca = await db.execute(
+        select(CorporateAction).order_by(asc(CorporateAction.priority_level))
+    )
+    all_ca = q_ca.scalars().all()
+    ca_by_symbol = {}
+    for ca in all_ca:
+        ca_by_symbol.setdefault(ca.symbol, []).append({
+            "action_type": ca.action_type,
+            "subject": ca.subject,
+            "ex_date": ca.ex_date,
+            "record_date": ca.record_date,
+            "priority_level": ca.priority_level,
+            "details": ca.details
+        })
+
+    results = []
+    trade_date = date
+    for sym, item in bhav_map.items():
+        if not trade_date and item.get("trade_date"):
+            trade_date = item.get("trade_date")
+
+        mkt_perf = item.get("market_performance")
+        premarket = item.get("premarket")
+        rec_low = item.get("recover_from_low")
+        dist_high = item.get("distance_from_high")
+        ltp = item.get("lastPrice")
+        prev_close = item.get("previousClose")
+        open_val = item.get("open")
+        high = item.get("dayHigh")
+        low = item.get("dayLow")
+        chg = item.get("change")
+        p_chg = item.get("pChange")
+
+        if mkt_perf is None and ltp is not None and prev_close is not None:
+            mkt_perf = round(ltp - prev_close, 2)
+        if premarket is None and open_val is not None and prev_close is not None:
+            premarket = round(open_val - prev_close, 2)
+        if rec_low is None and ltp is not None and low is not None:
+            rec_low = round(ltp - low, 2)
+        if dist_high is None and ltp is not None and high is not None:
+            dist_high = round(ltp - high, 2)
+
+        results.append(CustomStockItemSchema(
+            id=None,
+            date=trade_date or date,
+            symbol=sym,
+            company_name=item.get("companyName") or sym,
+            series=item.get("series") or "EQ",
+            open=open_val,
+            high=high,
+            low=low,
+            previous_close=prev_close,
+            market_performance=mkt_perf,
+            premarket=premarket,
+            recover_from_low=rec_low,
+            distance_from_high=dist_high,
+            ltp=ltp,
+            change=chg,
+            pct_change=p_chg,
+            volume=item.get("totalTradedVolume"),
+            turnover=item.get("totalTradedValue"),
+            year_high=item.get("yearHigh"),
+            year_low=item.get("yearLow"),
+            per_change_30d=item.get("perChange30d"),
+            per_change_365d=item.get("perChange365d"),
+            near_wkh=item.get("nearWKH"),
+            near_wkl=item.get("nearWKL"),
+            ffmc=item.get("ffmc"),
+            last_update_time=item.get("lastUpdateTime") or "",
+            catalysts=ca_by_symbol.get(sym, []),
+            created_at=None
+        ))
+
+    # Sort default by % change descending
+    results.sort(key=lambda s: (s.pct_change if s.pct_change is not None else -9999), reverse=True)
+    ram_cache.set(cache_key, results, ttl=60.0)
+    return results
+
 @router.get("/custom-stocks", response_model=List[CustomStockItemSchema])
 async def get_custom_stocks_data(
     date: Optional[str] = Query(None, description="Trade date in YYYY-MM-DD format"),
     username: str = Query("admin", description="Username for custom watchlist"),
+    mode: str = Query("watchlist", description="View mode: 'watchlist' or 'all'"),
     db: AsyncSession = Depends(get_db)
 ):
     """Returns custom watchlist overview table with 4 calculated performance metrics and corporate action catalysts.
     Optimized for sub-millisecond cached responses and parallel batch fetching.
     """
+    if mode == "all":
+        return await get_all_nse_stocks_data(date=date, db=db)
+
     if not isinstance(username, str) or not username:
         username = "admin"
 
@@ -590,24 +692,34 @@ async def get_custom_stocks_data(
             if d.symbol not in det_map:
                 det_map[d.symbol] = d
 
-    # 5. Parallel on-demand fetch for any symbols still completely missing
+    # 5. Fetch live quotes for any symbols still missing from DB or for real-time live views
     still_missing = [s for s in symbols if s not in n50_map and s not in det_map]
-    if still_missing:
-        fetcher = NSEFetcher()
-        fetcher._ensure_session()
-        semaphore = asyncio.Semaphore(10)
+    live_quotes_map = {}
+    fetcher = NSEFetcher()
+    try:
+        live_quotes_map = await asyncio.to_thread(fetcher.fetch_all_live_market_quotes)
+    except Exception as e:
+        logger.debug(f"Live market quotes fetch notice: {e}")
+
+    for s in still_missing:
+        if s in live_quotes_map:
+            det_map[s] = live_quotes_map[s]
+
+    remaining_missing = [s for s in symbols if s not in n50_map and s not in det_map]
+    if remaining_missing:
+        semaphore = asyncio.Semaphore(5)
 
         async def fetch_one(sym_to_fetch: str):
             async with semaphore:
                 try:
-                    return sym_to_fetch, await asyncio.to_thread(fetcher.fetch_stock_details, sym_to_fetch)
+                    return sym_to_fetch, await asyncio.to_thread(fetcher.fetch_live_stock_quote, sym_to_fetch)
                 except Exception:
                     return sym_to_fetch, None
 
-        fetched = await asyncio.gather(*[fetch_one(s) for s in still_missing])
-        for s, eq_dict in fetched:
-            if eq_dict:
-                det_map[s] = eq_dict
+        fetched = await asyncio.gather(*[fetch_one(s) for s in remaining_missing])
+        for s, q_dict in fetched:
+            if q_dict:
+                det_map[s] = q_dict
 
     # 6. Load corporate actions for catalysts
     q_ca = await db.execute(
@@ -673,48 +785,83 @@ async def get_custom_stocks_data(
             p_info = det.price_info if isinstance(det.price_info, dict) else {}
             t_info = det.trade_info if isinstance(det.trade_info, dict) else {}
             m_info = det.meta_data if isinstance(det.meta_data, dict) else {}
+            intra = p_info.get("intraDayHighLow") if isinstance(p_info.get("intraDayHighLow"), dict) else {}
+            week = p_info.get("weekHighLow") if isinstance(p_info.get("weekHighLow"), dict) else {}
+            
             c_name = det.company_name or m_info.get("companyName") or c_name
             ltp = safe_float(p_info.get("lastPrice") or p_info.get("close") or m_info.get("lastPrice"))
             open_val = safe_float(p_info.get("open") or m_info.get("open"))
-            high = safe_float(p_info.get("intraDayHighLow", {}).get("max") or p_info.get("high") or m_info.get("dayHigh"))
-            low = safe_float(p_info.get("intraDayHighLow", {}).get("min") or p_info.get("low") or m_info.get("dayLow"))
+            high = safe_float(intra.get("max") or p_info.get("high") or m_info.get("dayHigh"))
+            low = safe_float(intra.get("min") or p_info.get("low") or m_info.get("dayLow"))
             prev_close = safe_float(p_info.get("previousClose") or m_info.get("previousClose"))
             change = safe_float(p_info.get("change") or m_info.get("change"))
             pct_change = safe_float(p_info.get("pChange") or m_info.get("pChange"))
-            volume = det.total_volume or safe_float(t_info.get("totalTradedVolume"))
+            volume = det.total_volume or safe_float(t_info.get("totalTradedVolume") or t_info.get("quantityTraded"))
             turnover = det.total_turnover or safe_float(t_info.get("totalTradedValue"))
             ffmc = det.free_float_mcap or safe_float(t_info.get("ffmc"))
-            year_high = safe_float(p_info.get("weekHighLow", {}).get("max") or p_info.get("yearHigh"))
-            year_low = safe_float(p_info.get("weekHighLow", {}).get("min") or p_info.get("yearLow"))
+            year_high = safe_float(week.get("max") or p_info.get("yearHigh"))
+            year_low = safe_float(week.get("min") or p_info.get("yearLow"))
             p30 = safe_float(p_info.get("perChange30d"))
             p365 = safe_float(p_info.get("perChange365d"))
             near_h = safe_float(p_info.get("nearWKH"))
             near_l = safe_float(p_info.get("nearWKL"))
             series = str(m_info.get("series") or "EQ")
             last_update = str(m_info.get("lastUpdateTime") or "")
-        elif isinstance(det, dict):  # Dict response from fetch_stock_details
-            p_info = det.get("priceInfo") or {}
-            t_info = det.get("tradeInfo") or {}
-            m_info = det.get("metaData") or {}
-            c_name = m_info.get("companyName") or c_name
-            ltp = safe_float(p_info.get("lastPrice") or p_info.get("close"))
-            open_val = safe_float(p_info.get("open"))
-            high = safe_float(p_info.get("intraDayHighLow", {}).get("max") or p_info.get("high"))
-            low = safe_float(p_info.get("intraDayHighLow", {}).get("min") or p_info.get("low"))
-            prev_close = safe_float(p_info.get("previousClose"))
-            change = safe_float(p_info.get("change"))
-            pct_change = safe_float(p_info.get("pChange"))
-            volume = safe_float(t_info.get("totalTradedVolume"))
-            turnover = safe_float(t_info.get("totalTradedValue"))
-            ffmc = safe_float(t_info.get("ffmc"))
-            year_high = safe_float(p_info.get("weekHighLow", {}).get("max") or p_info.get("yearHigh"))
-            year_low = safe_float(p_info.get("weekHighLow", {}).get("min") or p_info.get("yearLow"))
-            p30 = safe_float(p_info.get("perChange30d"))
-            p365 = safe_float(p_info.get("perChange365d"))
-            near_h = safe_float(p_info.get("nearWKH"))
-            near_l = safe_float(p_info.get("nearWKL"))
-            series = str(m_info.get("series") or "EQ")
-            last_update = str(m_info.get("lastUpdateTime") or "")
+        elif isinstance(det, dict):  # Dict response from live market snapshot or fetch_live_stock_quote
+            p_info = det.get("priceInfo") if isinstance(det.get("priceInfo"), dict) else {}
+            t_info = det.get("tradeInfo") if isinstance(det.get("tradeInfo"), dict) else {}
+            m_info = det.get("metaData") if isinstance(det.get("metaData"), dict) else {}
+            intra = p_info.get("intraDayHighLow") if isinstance(p_info.get("intraDayHighLow"), dict) else {}
+            week = p_info.get("weekHighLow") if isinstance(p_info.get("weekHighLow"), dict) else {}
+
+            c_name = det.get("companyName") or m_info.get("companyName") or c_name
+            ltp = safe_float(det.get("lastPrice") or p_info.get("lastPrice") or p_info.get("close"))
+            open_val = safe_float(det.get("open") or p_info.get("open"))
+            high = safe_float(det.get("dayHigh") or intra.get("max") or p_info.get("high"))
+            low = safe_float(det.get("dayLow") or intra.get("min") or p_info.get("low"))
+            prev_close = safe_float(det.get("previousClose") or p_info.get("previousClose"))
+            change = safe_float(det.get("change") or p_info.get("change"))
+            pct_change = safe_float(det.get("pChange") or p_info.get("pChange"))
+            volume = safe_float(det.get("totalTradedVolume") or t_info.get("totalTradedVolume") or t_info.get("quantityTraded"))
+            turnover = safe_float(det.get("totalTradedValue") or t_info.get("totalTradedValue"))
+            ffmc = safe_float(det.get("ffmc") or t_info.get("ffmc"))
+            year_high = safe_float(det.get("yearHigh") or week.get("max") or p_info.get("yearHigh"))
+            year_low = safe_float(det.get("yearLow") or week.get("min") or p_info.get("yearLow"))
+            p30 = safe_float(det.get("perChange30d") or p_info.get("perChange30d"))
+            p365 = safe_float(det.get("perChange365d") or p_info.get("perChange365d"))
+            near_h = safe_float(det.get("nearWKH") or p_info.get("nearWKH"))
+            near_l = safe_float(det.get("nearWKL") or p_info.get("nearWKL"))
+            series = str(det.get("series") or m_info.get("series") or "EQ")
+            last_update = str(det.get("lastUpdateTime") or m_info.get("lastUpdateTime") or "")
+
+        # Augment with live market quote if fields are still missing
+        if (ltp is None or prev_close is None) and sym in live_quotes_map:
+            l_q = live_quotes_map[sym]
+            p_inf = l_q.get("priceInfo") if isinstance(l_q.get("priceInfo"), dict) else {}
+            t_inf = l_q.get("tradeInfo") if isinstance(l_q.get("tradeInfo"), dict) else {}
+            m_inf = l_q.get("metaData") if isinstance(l_q.get("metaData"), dict) else {}
+            intra = p_inf.get("intraDayHighLow") if isinstance(p_inf.get("intraDayHighLow"), dict) else {}
+            week = p_inf.get("weekHighLow") if isinstance(p_inf.get("weekHighLow"), dict) else {}
+
+            c_name = l_q.get("companyName") or m_inf.get("companyName") or c_name
+            ltp = safe_float(l_q.get("lastPrice") or p_inf.get("lastPrice") or p_inf.get("close") or ltp)
+            open_val = safe_float(l_q.get("open") or p_inf.get("open") or open_val)
+            high = safe_float(l_q.get("dayHigh") or intra.get("max") or p_inf.get("high") or high)
+            low = safe_float(l_q.get("dayLow") or intra.get("min") or p_inf.get("low") or low)
+            prev_close = safe_float(l_q.get("previousClose") or p_inf.get("previousClose") or prev_close)
+            change = safe_float(l_q.get("change") or p_inf.get("change") or change)
+            pct_change = safe_float(l_q.get("pChange") or p_inf.get("pChange") or pct_change)
+            volume = safe_float(l_q.get("totalTradedVolume") or t_inf.get("totalTradedVolume") or volume)
+            turnover = safe_float(l_q.get("totalTradedValue") or turnover)
+            ffmc = safe_float(l_q.get("ffmc") or ffmc)
+            year_high = safe_float(l_q.get("yearHigh") or week.get("max") or year_high)
+            year_low = safe_float(l_q.get("yearLow") or week.get("min") or year_low)
+            p30 = safe_float(l_q.get("perChange30d") or p30)
+            p365 = safe_float(l_q.get("perChange365d") or p365)
+            near_h = safe_float(l_q.get("nearWKH") or near_h)
+            near_l = safe_float(l_q.get("nearWKL") or near_l)
+            series = str(l_q.get("series") or series or "EQ")
+            last_update = str(l_q.get("lastUpdateTime") or last_update or "")
 
         # Compute calculated performance indicators with exact precision
         if ltp is not None and prev_close is not None and prev_close > 0:
@@ -799,6 +946,38 @@ async def add_custom_stock(
     detail_json = None
     try:
         detail_json = await asyncio.to_thread(fetcher.fetch_stock_details, symbol)
+        if not detail_json:
+            live_q = await asyncio.to_thread(fetcher.fetch_live_stock_quote, symbol)
+            if live_q:
+                detail_json = {
+                    "priceInfo": {
+                        "lastPrice": live_q.get("lastPrice"),
+                        "open": live_q.get("open"),
+                        "previousClose": live_q.get("previousClose"),
+                        "change": live_q.get("change"),
+                        "pChange": live_q.get("pChange"),
+                        "yearHigh": live_q.get("yearHigh"),
+                        "yearLow": live_q.get("yearLow"),
+                        "perChange30d": live_q.get("perChange30d"),
+                        "perChange365d": live_q.get("perChange365d"),
+                        "nearWKH": live_q.get("nearWKH"),
+                        "nearWKL": live_q.get("nearWKL"),
+                        "intraDayHighLow": {"min": live_q.get("dayLow"), "max": live_q.get("dayHigh")},
+                        "weekHighLow": {"min": live_q.get("yearLow"), "max": live_q.get("yearHigh")}
+                    },
+                    "tradeInfo": {
+                        "totalTradedVolume": live_q.get("totalTradedVolume"),
+                        "totalTradedValue": live_q.get("totalTradedValue"),
+                        "ffmc": live_q.get("ffmc")
+                    },
+                    "metaData": {
+                        "companyName": live_q.get("companyName") or c_name,
+                        "symbol": symbol,
+                        "series": live_q.get("series") or "EQ",
+                        "lastUpdateTime": live_q.get("lastUpdateTime")
+                    },
+                    "companyName": live_q.get("companyName") or c_name
+                }
         if detail_json:
             m_data = detail_json.get("metaData") or {}
             c_name = m_data.get("companyName") or detail_json.get("companyName") or c_name
@@ -806,88 +985,21 @@ async def add_custom_stock(
     except Exception as e:
         logger.warning(f"Error fetching live NSE quote for {symbol}: {e}")
 
-    # 1. Ingest stock corporate actions (Dividends, Splits, Bonus, etc.)
-    try:
-        stock_ca_list = await asyncio.to_thread(fetcher.fetch_stock_corporate_actions, symbol)
-        if stock_ca_list:
-            for ca_item in stock_ca_list:
-                subj = ca_item.get("subject") or ca_item.get("purpose") or ""
-                if not subj:
-                    continue
-                act_type, priority = classify_corporate_action(subj)
-                raw_ex = ca_item.get("exDate") or ca_item.get("ex_date")
-                parsed_ex = None
-                if raw_ex:
-                    try:
-                        parsed_ex = datetime.strptime(raw_ex.strip(), "%d-%b-%Y").strftime("%Y-%m-%d")
-                    except Exception:
-                        parsed_ex = str(raw_ex)
+    # 1. First, ensure CustomStockWatchlist record is added and committed
+    if not existing:
+        new_item = CustomStockWatchlist(
+            username=username,
+            symbol=symbol,
+            company_name=c_name or symbol
+        )
+        db.add(new_item)
+        try:
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            logger.debug(f"Watchlist item already exists or commit notice: {e}")
 
-                # Upsert into CorporateAction
-                q_ca_exist = await db.execute(
-                    select(CorporateAction).where(
-                        CorporateAction.symbol == symbol,
-                        CorporateAction.subject == subj,
-                        CorporateAction.ex_date == parsed_ex
-                    )
-                )
-                if not q_ca_exist.scalars().first():
-                    new_ca = CorporateAction(
-                        symbol=symbol,
-                        company_name=c_name or symbol,
-                        series=ca_item.get("series") or "EQ",
-                        action_type=act_type,
-                        subject=subj,
-                        ex_date=parsed_ex,
-                        record_date=ca_item.get("recordDate"),
-                        priority_level=priority,
-                        details=ca_item.get("details") or subj,
-                        raw_data=ca_item
-                    )
-                    db.add(new_ca)
-    except Exception as e:
-        logger.warning(f"Error fetching corporate actions for {symbol}: {e}")
-
-    # 2. Ingest stock event calendar (Board Meetings & Financial Results)
-    try:
-        stock_events = await asyncio.to_thread(fetcher.fetch_stock_event_calendar, symbol)
-        if stock_events:
-            for ev in stock_events:
-                purpose = ev.get("purpose") or ev.get("subject") or "Board Meeting"
-                ev_date = ev.get("bm_date") or ev.get("eventDate") or ev.get("date")
-                if not purpose:
-                    continue
-                parsed_ev_date = None
-                if ev_date:
-                    try:
-                        parsed_ev_date = datetime.strptime(ev_date.strip(), "%d-%b-%Y").strftime("%Y-%m-%d")
-                    except Exception:
-                        parsed_ev_date = str(ev_date)
-
-                q_ev_exist = await db.execute(
-                    select(CorporateAction).where(
-                        CorporateAction.symbol == symbol,
-                        CorporateAction.subject == purpose,
-                        CorporateAction.ex_date == parsed_ev_date
-                    )
-                )
-                if not q_ev_exist.scalars().first():
-                    new_ev_ca = CorporateAction(
-                        symbol=symbol,
-                        company_name=c_name or symbol,
-                        series=ev.get("series") or "EQ",
-                        action_type="RESULTS" if "RESULT" in purpose.upper() else "BOARD_MEETING",
-                        subject=purpose,
-                        ex_date=parsed_ev_date,
-                        priority_level=2,
-                        details=ev.get("details") or purpose,
-                        raw_data=ev
-                    )
-                    db.add(new_ev_ca)
-    except Exception as e:
-        logger.warning(f"Error fetching event calendar for {symbol}: {e}")
-
-    # 3. Persist complete live quote in StockDetailDaily table
+    # 2. Persist complete live quote in StockDetailDaily table
     if detail_json:
         try:
             t_info = detail_json.get("tradeInfo") or {}
@@ -956,22 +1068,103 @@ async def add_custom_stock(
                     meta_data=m_data
                 )
                 db.add(new_detail)
+
+            await db.commit()
         except Exception as e:
+            await db.rollback()
             logger.warning(f"Error persisting stock details for {symbol}: {e}")
 
-    if not existing:
-        new_item = CustomStockWatchlist(
-            username=username,
-            symbol=symbol,
-            company_name=c_name or symbol
-        )
-        db.add(new_item)
-
+    # 3. Ingest stock corporate actions (Dividends, Splits, Bonus, etc.) with safe savepoints
     try:
-        await db.commit()
+        stock_ca_list = await asyncio.to_thread(fetcher.fetch_stock_corporate_actions, symbol)
+        if stock_ca_list:
+            for ca_item in stock_ca_list:
+                subj = ca_item.get("subject") or ca_item.get("purpose") or ""
+                if not subj:
+                    continue
+                act_type, priority = classify_corporate_action(subj)
+                raw_ex = ca_item.get("exDate") or ca_item.get("ex_date")
+                parsed_ex = None
+                if raw_ex:
+                    try:
+                        parsed_ex = datetime.strptime(raw_ex.strip(), "%d-%b-%Y").strftime("%Y-%m-%d")
+                    except Exception:
+                        parsed_ex = str(raw_ex)
+
+                try:
+                    async with db.begin_nested():
+                        q_ca_exist = await db.execute(
+                            select(CorporateAction).where(
+                                CorporateAction.symbol == symbol,
+                                CorporateAction.subject == subj,
+                                CorporateAction.ex_date == parsed_ex
+                            )
+                        )
+                        if not q_ca_exist.scalars().first():
+                            new_ca = CorporateAction(
+                                symbol=symbol,
+                                company_name=c_name or symbol,
+                                series=ca_item.get("series") or "EQ",
+                                action_type=act_type,
+                                subject=subj,
+                                ex_date=parsed_ex,
+                                record_date=ca_item.get("recordDate"),
+                                priority_level=priority,
+                                details=ca_item.get("details") or subj,
+                                raw_data=ca_item
+                            )
+                            db.add(new_ca)
+                            await db.flush()
+                except Exception:
+                    pass
+            await db.commit()
     except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to save custom stock: {str(e)}")
+        logger.debug(f"Corporate actions ingestion notice for {symbol}: {e}")
+
+    # 4. Ingest stock event calendar (Board Meetings & Financial Results) with safe savepoints
+    try:
+        stock_events = await asyncio.to_thread(fetcher.fetch_stock_event_calendar, symbol)
+        if stock_events:
+            for ev in stock_events:
+                purpose = ev.get("purpose") or ev.get("subject") or "Board Meeting"
+                ev_date = ev.get("bm_date") or ev.get("eventDate") or ev.get("date")
+                if not purpose:
+                    continue
+                parsed_ev_date = None
+                if ev_date:
+                    try:
+                        parsed_ev_date = datetime.strptime(ev_date.strip(), "%d-%b-%Y").strftime("%Y-%m-%d")
+                    except Exception:
+                        parsed_ev_date = str(ev_date)
+
+                try:
+                    async with db.begin_nested():
+                        q_ev_exist = await db.execute(
+                            select(CorporateAction).where(
+                                CorporateAction.symbol == symbol,
+                                CorporateAction.subject == purpose,
+                                CorporateAction.ex_date == parsed_ev_date
+                            )
+                        )
+                        if not q_ev_exist.scalars().first():
+                            new_ev_ca = CorporateAction(
+                                symbol=symbol,
+                                company_name=c_name or symbol,
+                                series=ev.get("series") or "EQ",
+                                action_type="RESULTS" if "RESULT" in purpose.upper() else "BOARD_MEETING",
+                                subject=purpose,
+                                ex_date=parsed_ev_date,
+                                priority_level=2,
+                                details=ev.get("details") or purpose,
+                                raw_data=ev
+                            )
+                            db.add(new_ev_ca)
+                            await db.flush()
+                except Exception:
+                    pass
+            await db.commit()
+    except Exception as e:
+        logger.debug(f"Event calendar ingestion notice for {symbol}: {e}")
 
     ram_cache.invalidate("custom_stocks")
     return {

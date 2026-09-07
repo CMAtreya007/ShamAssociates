@@ -2,6 +2,9 @@ import time
 import json
 import logging
 import asyncio
+import io
+import zipfile
+import csv
 import urllib.parse
 from datetime import datetime, date, timedelta
 from typing import Dict, Any, List, Optional, Tuple
@@ -231,6 +234,267 @@ class NSEFetcher:
             return stocks
         return None
 
+    def fetch_all_live_market_quotes(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Fetches live real-time market snapshots across NIFTY 500, SECURITIES IN F&O, NIFTY 50,
+        and Sectoral indices. Returns a dictionary mapping SYMBOL -> live quote dictionary.
+        Cached in RAM for 25s for blazing-fast sub-millisecond multi-stock lookups.
+        """
+        cache_key = "live_market_quotes_map"
+        from app.services.cache_manager import ram_cache
+        cached = ram_cache.get(cache_key)
+        if cached is not None and isinstance(cached, dict):
+            return cached
+
+        quotes_map: Dict[str, Dict[str, Any]] = {}
+        indices_to_fetch = ["NIFTY 500", "SECURITIES IN F&O", "NIFTY 50", "NIFTY MIDCAP 150"]
+        for idx in indices_to_fetch:
+            try:
+                enc = urllib.parse.quote(idx)
+                url = f"{self.BASE_URL}/api/NextApi/apiClient/marketWatchApi?functionName=getIndicesData&symbol={enc}"
+                d = self._get_json(url, referer=f"{self.BASE_URL}/market-data/live-equity-market", retries=2)
+                if d and isinstance(d, dict) and "data" in d:
+                    raw_data = d["data"]
+                    stock_list = []
+                    if isinstance(raw_data, dict) and "data" in raw_data and isinstance(raw_data["data"], list):
+                        stock_list = raw_data["data"]
+                    elif isinstance(raw_data, list):
+                        stock_list = raw_data
+                    
+                    for item in stock_list:
+                        sym = (item.get("symbol") or "").upper().strip()
+                        if not sym or sym == idx or item.get("priority") == 1:
+                            continue
+                        if sym not in quotes_map:
+                            quotes_map[sym] = item
+            except Exception as e:
+                logger.warning(f"Error fetching live index {idx}: {e}")
+
+        if quotes_map:
+            ram_cache.set(cache_key, quotes_map, ttl=25.0)
+        return quotes_map
+
+    def fetch_full_market_bhavcopy(self, target_date: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+        """
+        Fetches the complete authoritative NSE Equity universe (all 2,652+ listed stocks)
+        from the official consolidated NSE Bhavcopy, overlaying live quotes for real-time accuracy.
+        Caches in RAM for sub-millisecond multi-stock responses.
+        """
+        from app.services.cache_manager import ram_cache
+        
+        cache_key = f"full_market_bhavcopy_{target_date or 'latest'}"
+        cached = ram_cache.get(cache_key)
+        if cached is not None and isinstance(cached, dict):
+            return cached
+
+        dates_to_try = []
+        if target_date:
+            try:
+                clean_d = datetime.strptime(target_date.strip().replace("-", ""), "%Y%m%d")
+                dates_to_try.append(clean_d)
+            except Exception:
+                pass
+        
+        now = datetime.now()
+        for offset in range(8):
+            d = now - timedelta(days=offset)
+            if d.weekday() not in (5, 6):
+                if d not in dates_to_try:
+                    dates_to_try.append(d)
+
+        bhav_map: Dict[str, Dict[str, Any]] = {}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Referer": "https://www.nseindia.com/"
+        }
+
+        for check_dt in dates_to_try:
+            ymd = check_dt.strftime("%Y%m%d")
+            url = f"https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_{ymd}_F_0000.csv.zip"
+            try:
+                res = self.session.get(url, headers=headers, timeout=12)
+                if res.status_code == 200 and len(res.content) > 1000:
+                    zf = zipfile.ZipFile(io.BytesIO(res.content))
+                    with zf.open(zf.namelist()[0]) as f:
+                        csv_text = io.TextIOWrapper(f, encoding="utf-8", errors="ignore").read()
+                        reader = csv.DictReader(io.StringIO(csv_text))
+                        for row in reader:
+                            series = (row.get("SctySrs") or row.get("SERIES") or "").strip().upper()
+                            sym = (row.get("TckrSymb") or row.get("SYMBOL") or "").strip().upper()
+                            inst_tp = (row.get("FinInstrmTp") or "").strip().upper()
+                            
+                            # Accept all equity and trade-for-trade stock series (EQ, BE, BZ, SM, ST, SZ, E1, GB)
+                            if not sym or (inst_tp != "STK" and series not in ("EQ", "BE", "BZ", "SM", "ST", "SZ", "E1", "GB")):
+                                continue
+                            
+                            open_p = safe_float(row.get("OpnPric") or row.get("OPEN_PRICE") or row.get("OPEN"))
+                            high_p = safe_float(row.get("HghPric") or row.get("HIGH_PRICE") or row.get("HIGH"))
+                            low_p = safe_float(row.get("LwPric") or row.get("LOW_PRICE") or row.get("LOW"))
+                            cls_p = safe_float(row.get("ClsPric") or row.get("CLOSE_PRICE") or row.get("LastPric") or row.get("CLOSE") or row.get("LAST_PRICE"))
+                            prev_p = safe_float(row.get("PrvsClsgPric") or row.get("PREV_CLOSE") or row.get("PREVCLOSE"))
+                            vol = safe_float(row.get("TtlTradgVol") or row.get("TTL_TRD_QNTY") or row.get("TOTTRDQTY"))
+                            turnover = safe_float(row.get("TtlTrfVal") or row.get("TURNOVER_LACS") or row.get("TOTTRDVAL"))
+                            isin = row.get("ISIN") or ""
+                            comp_name = (row.get("FinInstrmNm") or row.get("COMPANY_NAME") or sym).strip()
+
+                            chg = round(cls_p - prev_p, 2) if (cls_p is not None and prev_p is not None) else None
+                            p_chg = round(((chg / prev_p) * 100.0), 2) if (chg is not None and prev_p and prev_p > 0) else None
+
+                            mkt_perf = round(cls_p - prev_p, 2) if (cls_p is not None and prev_p is not None) else chg
+                            premarket = round(open_p - prev_p, 2) if (open_p is not None and prev_p is not None) else None
+                            rec_low = round(cls_p - low_p, 2) if (cls_p is not None and low_p is not None) else None
+                            dist_high = round(cls_p - high_p, 2) if (cls_p is not None and high_p is not None) else None
+
+                            bhav_map[sym] = {
+                                "symbol": sym,
+                                "companyName": comp_name,
+                                "series": series or "EQ",
+                                "isin": isin,
+                                "open": open_p,
+                                "dayHigh": high_p,
+                                "dayLow": low_p,
+                                "previousClose": prev_p,
+                                "lastPrice": cls_p,
+                                "change": chg,
+                                "pChange": p_chg,
+                                "market_performance": mkt_perf,
+                                "premarket": premarket,
+                                "recover_from_low": rec_low,
+                                "distance_from_high": dist_high,
+                                "totalTradedVolume": vol,
+                                "totalTradedValue": turnover,
+                                "trade_date": check_dt.strftime("%Y-%m-%d")
+                            }
+                    logger.info(f"Successfully fetched Bhavcopy for {ymd}: {len(bhav_map)} equities")
+                    break
+            except Exception as e:
+                logger.debug(f"Could not load Bhavcopy for {ymd}: {e}")
+
+        # Overlay live market quotes when available
+        try:
+            live_quotes = self.fetch_all_live_market_quotes()
+            for sym, l_q in live_quotes.items():
+                if sym in bhav_map:
+                    p_inf = l_q.get("priceInfo") if isinstance(l_q.get("priceInfo"), dict) else {}
+                    t_inf = l_q.get("tradeInfo") if isinstance(l_q.get("tradeInfo"), dict) else {}
+                    intra = p_inf.get("intraDayHighLow") if isinstance(p_inf.get("intraDayHighLow"), dict) else {}
+                    week = p_inf.get("weekHighLow") if isinstance(p_inf.get("weekHighLow"), dict) else {}
+
+                    ltp_val = safe_float(l_q.get("lastPrice") or p_inf.get("lastPrice") or p_inf.get("close"))
+                    if ltp_val is not None:
+                        bhav_map[sym]["lastPrice"] = ltp_val
+                    open_val = safe_float(l_q.get("open") or p_inf.get("open"))
+                    if open_val is not None:
+                        bhav_map[sym]["open"] = open_val
+                    hi_val = safe_float(l_q.get("dayHigh") or intra.get("max") or p_inf.get("high"))
+                    if hi_val is not None:
+                        bhav_map[sym]["dayHigh"] = hi_val
+                    lo_val = safe_float(l_q.get("dayLow") or intra.get("min") or p_inf.get("low"))
+                    if lo_val is not None:
+                        bhav_map[sym]["dayLow"] = lo_val
+                    pc_val = safe_float(l_q.get("previousClose") or p_inf.get("previousClose"))
+                    if pc_val is not None:
+                        bhav_map[sym]["previousClose"] = pc_val
+                    chg_val = safe_float(l_q.get("change") or p_inf.get("change"))
+                    if chg_val is not None:
+                        bhav_map[sym]["change"] = chg_val
+                    pct_val = safe_float(l_q.get("pChange") or p_inf.get("pChange"))
+                    if pct_val is not None:
+                        bhav_map[sym]["pChange"] = pct_val
+                    vol_val = safe_float(l_q.get("totalTradedVolume") or t_inf.get("totalTradedVolume"))
+                    if vol_val is not None:
+                        bhav_map[sym]["totalTradedVolume"] = vol_val
+                    val_val = safe_float(l_q.get("totalTradedValue"))
+                    if val_val is not None:
+                        bhav_map[sym]["totalTradedValue"] = val_val
+                    yh = safe_float(l_q.get("yearHigh") or week.get("max") or p_inf.get("yearHigh"))
+                    if yh is not None:
+                        bhav_map[sym]["yearHigh"] = yh
+                    yl = safe_float(l_q.get("yearLow") or week.get("min") or p_inf.get("yearLow"))
+                    if yl is not None:
+                        bhav_map[sym]["yearLow"] = yl
+                    p30 = safe_float(l_q.get("perChange30d") or p_inf.get("perChange30d"))
+                    if p30 is not None:
+                        bhav_map[sym]["perChange30d"] = p30
+                    p365 = safe_float(l_q.get("perChange365d") or p_inf.get("perChange365d"))
+                    if p365 is not None:
+                        bhav_map[sym]["perChange365d"] = p365
+                    nwkh = safe_float(l_q.get("nearWKH") or p_inf.get("nearWKH"))
+                    if nwkh is not None:
+                        bhav_map[sym]["nearWKH"] = nwkh
+                    nwkl = safe_float(l_q.get("nearWKL") or p_inf.get("nearWKL"))
+                    if nwkl is not None:
+                        bhav_map[sym]["nearWKL"] = nwkl
+
+                    # Recalculate 4 metrics with live prices
+                    cur_ltp = bhav_map[sym].get("lastPrice")
+                    cur_prev = bhav_map[sym].get("previousClose")
+                    cur_open = bhav_map[sym].get("open")
+                    cur_high = bhav_map[sym].get("dayHigh")
+                    cur_low = bhav_map[sym].get("dayLow")
+                    if cur_ltp is not None and cur_prev is not None:
+                        bhav_map[sym]["market_performance"] = round(cur_ltp - cur_prev, 2)
+                    if cur_open is not None and cur_prev is not None:
+                        bhav_map[sym]["premarket"] = round(cur_open - cur_prev, 2)
+                    if cur_ltp is not None and cur_low is not None:
+                        bhav_map[sym]["recover_from_low"] = round(cur_ltp - cur_low, 2)
+                    if cur_ltp is not None and cur_high is not None:
+                        bhav_map[sym]["distance_from_high"] = round(cur_ltp - cur_high, 2)
+        except Exception as e:
+            logger.debug(f"Live quotes overlay notice: {e}")
+
+        if bhav_map:
+            ram_cache.set(cache_key, bhav_map, ttl=60.0)
+        return bhav_map
+
+    def fetch_live_stock_quote(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Returns live real-time quote for any individual stock symbol across any series (EQ, BE, BZ, SM, ST).
+        Checks broad market live feeds first, falling back to deep individual quote extractor and Bhavcopy.
+        """
+        clean_sym = symbol.upper().strip()
+        all_quotes = self.fetch_all_live_market_quotes()
+        if clean_sym in all_quotes:
+            return all_quotes[clean_sym]
+        
+        # Check deep stock details with dynamic multi-series
+        det = self.fetch_stock_details(clean_sym)
+        if det and isinstance(det, dict):
+            p_inf = det.get("priceInfo") or {}
+            t_inf = det.get("tradeInfo") or {}
+            m_inf = det.get("metaData") or {}
+            intra = p_inf.get("intraDayHighLow") or {}
+            week = p_inf.get("weekHighLow") or {}
+            return {
+                "symbol": clean_sym,
+                "companyName": m_inf.get("companyName") or det.get("companyName") or clean_sym,
+                "series": m_inf.get("series") or "EQ",
+                "open": safe_float(p_inf.get("open") or m_inf.get("open")),
+                "dayHigh": safe_float(intra.get("max") or p_inf.get("high") or m_inf.get("dayHigh")),
+                "dayLow": safe_float(intra.get("min") or p_inf.get("low") or m_inf.get("dayLow")),
+                "previousClose": safe_float(p_inf.get("previousClose") or m_inf.get("previousClose")),
+                "lastPrice": safe_float(p_inf.get("lastPrice") or p_inf.get("close") or m_inf.get("lastPrice")),
+                "change": safe_float(p_inf.get("change") or m_inf.get("change")),
+                "pChange": safe_float(p_inf.get("pChange") or m_inf.get("pChange")),
+                "totalTradedVolume": safe_float(t_inf.get("totalTradedVolume") or t_inf.get("quantityTraded")),
+                "totalTradedValue": safe_float(t_inf.get("totalTradedValue")),
+                "yearHigh": safe_float(p_inf.get("yearHigh") or week.get("max")),
+                "yearLow": safe_float(p_inf.get("yearLow") or week.get("min")),
+                "perChange30d": safe_float(p_inf.get("perChange30d")),
+                "perChange365d": safe_float(p_inf.get("perChange365d")),
+                "nearWKH": safe_float(p_inf.get("nearWKH")),
+                "nearWKL": safe_float(p_inf.get("nearWKL")),
+                "lastUpdateTime": str(m_inf.get("lastUpdateTime") or ""),
+                "ffmc": safe_float(t_inf.get("ffmc"))
+            }
+
+        # Fallback to Bhavcopy
+        bhav_map = self.fetch_full_market_bhavcopy()
+        if clean_sym in bhav_map:
+            return bhav_map[clean_sym]
+
+        return None
+
     def search_autocomplete(self, query: str) -> List[Dict[str, Any]]:
         """Searches live symbols and company names on NSE via official autocomplete API."""
         encoded_q = urllib.parse.quote(query.strip())
@@ -260,199 +524,148 @@ class NSEFetcher:
         return self._get_json(url, referer=referer, retries=2)
 
     def fetch_stock_details(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Fetches deep trade info, price info, security info, valuation ratios, and delivery metrics for a single stock."""
+        """Fetches deep trade info, price info, security info, valuation ratios, and delivery metrics across all equity series."""
         clean_sym = symbol.upper().strip()
         encoded_sym = urllib.parse.quote(clean_sym)
         
-        # 1. Try NextApi GetQuoteApi
-        url1 = f"{self.BASE_URL}/api/NextApi/apiClient/GetQuoteApi?functionName=getSymbolData&marketType=N&series=EQ&symbol={encoded_sym}"
-        referer1 = f"{self.BASE_URL}/get-quotes/equity?symbol={encoded_sym}"
-        data1 = self._get_json(url1, referer=referer1, retries=2)
-        if data1 and isinstance(data1, dict) and "equityResponse" in data1:
-            eq_list = data1.get("equityResponse", [])
-            if eq_list and isinstance(eq_list, list) and len(eq_list) > 0:
-                eq_res = eq_list[0]
-                # Enrich with calculated fields if missing
-                p_inf = eq_res.get("priceInfo") or {}
-                t_inf = eq_res.get("tradeInfo") or {}
-                m_inf = eq_res.get("metaData") or {}
-                s_inf = eq_res.get("secInfo") or {}
+        # 1. Determine series candidates (EQ, BE, BZ, SM, ST, SZ, E1)
+        series_hint = None
+        from app.services.nse_symbols_master import lookup_master_symbol
+        m_info_master = lookup_master_symbol(clean_sym)
+        if m_info_master and m_info_master.get("series"):
+            series_hint = m_info_master["series"].upper()
+        
+        series_candidates = []
+        if series_hint:
+            series_candidates.append(series_hint)
+        for srs in ["EQ", "BE", "BZ", "SM", "ST", "SZ", "GB", "E1"]:
+            if srs not in series_candidates:
+                series_candidates.append(srs)
 
-                ltp_val = safe_float(p_inf.get("lastPrice") or p_inf.get("close"))
-                pc_val = safe_float(p_inf.get("previousClose") or p_inf.get("basePrice"))
-                yh_val = safe_float(p_inf.get("weekHighLow", {}).get("max") or p_inf.get("yearHigh"))
-                yl_val = safe_float(p_inf.get("weekHighLow", {}).get("min") or p_inf.get("yearLow"))
+        # 2. Try NextApi GetQuoteApi with dynamic multi-series support
+        for srs in series_candidates:
+            url1 = f"{self.BASE_URL}/api/NextApi/apiClient/GetQuoteApi?functionName=getSymbolData&marketType=N&series={srs}&symbol={encoded_sym}"
+            referer1 = f"{self.BASE_URL}/get-quotes/equity?symbol={encoded_sym}"
+            data1 = self._get_json(url1, referer=referer1, retries=2)
+            if data1 and isinstance(data1, dict) and "equityResponse" in data1:
+                eq_list = data1.get("equityResponse", [])
+                if eq_list and isinstance(eq_list, list) and len(eq_list) > 0:
+                    eq_res = eq_list[0]
+                    p_inf = eq_res.get("priceInfo") or {}
+                    t_inf = eq_res.get("tradeInfo") or {}
+                    m_inf = eq_res.get("metaData") or {}
+                    s_inf = eq_res.get("secInfo") or {}
+                    o_book = eq_res.get("orderBook") or {}
 
-                if p_inf.get("nearWKH") is None and ltp_val and yh_val and yh_val > 0:
-                    p_inf["nearWKH"] = round(((ltp_val - yh_val) / yh_val) * 100, 2)
-                if p_inf.get("nearWKL") is None and ltp_val and yl_val and yl_val > 0:
-                    p_inf["nearWKL"] = round(((ltp_val - yl_val) / yl_val) * 100, 2)
-                if p_inf.get("change") is None and ltp_val and pc_val:
-                    p_inf["change"] = round(ltp_val - pc_val, 2)
-                if p_inf.get("pChange") is None and ltp_val and pc_val and pc_val > 0:
-                    p_inf["pChange"] = round(((ltp_val - pc_val) / pc_val) * 100, 2)
+                    ltp_val = safe_float(m_inf.get("lastPrice") or m_inf.get("closePrice") or p_inf.get("lastPrice") or p_inf.get("close") or t_inf.get("lastPrice"))
+                    if ltp_val is not None or m_inf.get("symbol"):
+                        op_val = safe_float(m_inf.get("open") or p_inf.get("open"))
+                        hi_val = safe_float(m_inf.get("dayHigh") or (p_inf.get("intraDayHighLow") or {}).get("max") or p_inf.get("high"))
+                        lo_val = safe_float(m_inf.get("dayLow") or (p_inf.get("intraDayHighLow") or {}).get("min") or p_inf.get("low"))
+                        pc_val = safe_float(m_inf.get("previousClose") or m_inf.get("basePrice") or p_inf.get("previousClose") or p_inf.get("basePrice"))
+                        yh_val = safe_float(p_inf.get("yearHigh") or (p_inf.get("weekHighLow") or {}).get("max"))
+                        yl_val = safe_float(p_inf.get("yearLow") or (p_inf.get("weekHighLow") or {}).get("min"))
+                        chg_val = safe_float(m_inf.get("change") or p_inf.get("change"))
+                        pct_val = safe_float(m_inf.get("pChange") or p_inf.get("pChange"))
+                        vol_val = safe_float(t_inf.get("totalTradedVolume") or t_inf.get("quantityTraded"))
+                        val_val = safe_float(t_inf.get("totalTradedValue"))
 
-                # Ensure company name and industry exist
-                if not m_inf.get("companyName") and eq_res.get("companyName"):
-                    m_inf["companyName"] = eq_res.get("companyName")
+                        if chg_val is None and ltp_val is not None and pc_val is not None:
+                            chg_val = round(ltp_val - pc_val, 2)
+                        if pct_val is None and ltp_val is not None and pc_val and pc_val > 0:
+                            pct_val = round(((ltp_val - pc_val) / pc_val) * 100, 2)
 
-                # If delivery percentage is missing, attempt section=trade_info fetch
-                if not t_inf.get("deliveryToTradedQuantity") and not s_inf.get("deliveryTotradedQuantity"):
-                    try:
-                        trade_sec = self.fetch_stock_trade_info(clean_sym)
-                        if trade_sec and isinstance(trade_sec, dict):
-                            sec_dp = trade_sec.get("securityWiseDP") or {}
-                            d_qty = safe_float(sec_dp.get("deliveryQuantity"))
-                            d_pct = safe_float(sec_dp.get("deliveryToTradedQuantity"))
-                            q_trd = safe_float(sec_dp.get("quantityTraded"))
-                            if d_pct is not None:
-                                t_inf["deliveryToTradedQuantity"] = d_pct
-                            if d_qty is not None:
-                                t_inf["deliveryQuantity"] = d_qty
-                            if q_trd is not None:
-                                t_inf["quantityTraded"] = q_trd
-                    except Exception:
-                        pass
+                        near_wkh = safe_float(p_inf.get("nearWKH"))
+                        if near_wkh is None and ltp_val and yh_val and yh_val > 0:
+                            near_wkh = round(((ltp_val - yh_val) / yh_val) * 100, 2)
+                        near_wkl = safe_float(p_inf.get("nearWKL"))
+                        if near_wkl is None and ltp_val and yl_val and yl_val > 0:
+                            near_wkl = round(((ltp_val - yl_val) / yl_val) * 100, 2)
 
-                return eq_res
+                        c_name = m_inf.get("companyName") or (m_info_master.get("company_name") if m_info_master else clean_sym)
 
-        # 2. Fallback to quote-equity endpoint
-        url2 = f"{self.BASE_URL}/api/quote-equity?symbol={encoded_sym}"
-        referer2 = f"{self.BASE_URL}/get-quotes/equity?symbol={encoded_sym}"
-        data2 = self._get_json(url2, referer=referer2, retries=2)
-        if data2 and isinstance(data2, dict) and ("priceInfo" in data2 or "info" in data2 or "metadata" in data2):
-            info = data2.get("info") or {}
-            metadata = data2.get("metadata") or {}
-            price_info = data2.get("priceInfo") or {}
-            sec_info = data2.get("securityInfo") or {}
-            trade_info = data2.get("tradeInfo") or {}
-            industry_info = data2.get("industryInfo") or {}
-            order_book = data2.get("marketDeptOrderBook") or data2.get("orderBook") or data2.get("preOpenMarket") or {}
-            
-            intra_hl = price_info.get("intraDayHighLow") or {}
-            week_hl = price_info.get("weekHighLow") or {}
-            c_name = info.get("companyName") or metadata.get("companyName") or clean_sym
+                        # Package complete normalized details
+                        return {
+                            "priceInfo": {
+                                "lastPrice": ltp_val,
+                                "change": chg_val,
+                                "pChange": pct_val,
+                                "previousClose": pc_val,
+                                "open": op_val,
+                                "close": ltp_val,
+                                "intraDayHighLow": {"min": lo_val, "max": hi_val},
+                                "weekHighLow": {"min": yl_val, "max": yh_val},
+                                "yearHigh": yh_val,
+                                "yearLow": yl_val,
+                                "nearWKH": near_wkh,
+                                "nearWKL": near_wkl,
+                                "perChange30d": safe_float(p_inf.get("perChange30d")),
+                                "perChange365d": safe_float(p_inf.get("perChange365d")),
+                                "cmDailyVolatility": safe_float(p_inf.get("cmDailyVolatility")),
+                                "cmAnnualVolatility": safe_float(p_inf.get("cmAnnualVolatility"))
+                            },
+                            "tradeInfo": {
+                                "totalTradedVolume": vol_val,
+                                "totalTradedValue": val_val,
+                                "ffmc": safe_float(t_inf.get("ffmc")),
+                                "totalMarketCap": safe_float(t_inf.get("totalMarketCap")),
+                                "deliveryToTradedQuantity": safe_float(t_inf.get("deliveryToTradedQuantity")),
+                                "deliveryQuantity": safe_float(t_inf.get("deliveryQuantity")),
+                                "faceValue": safe_float(t_inf.get("faceValue") or s_inf.get("faceValue")),
+                                "issuedSize": safe_float(t_inf.get("issuedSize") or s_inf.get("issuedSize")),
+                                "impactCost": safe_float(t_inf.get("impactCost")),
+                                "applicableMargin": safe_float(t_inf.get("applicableMargin"))
+                            },
+                            "secInfo": s_inf or {
+                                "basicIndustry": m_info_master.get("industry") if m_info_master else "NSE Equity",
+                                "isin": m_inf.get("isinCode")
+                            },
+                            "metaData": {
+                                "companyName": c_name,
+                                "symbol": clean_sym,
+                                "series": srs,
+                                "isinCode": m_inf.get("isinCode") or (m_info_master.get("isin") if m_info_master else None),
+                                "industry": m_inf.get("industry") or (m_info_master.get("industry") if m_info_master else "NSE Equity"),
+                                "lastUpdateTime": str(m_inf.get("lastUpdateTime") or eq_res.get("lastUpdateTime") or "")
+                            },
+                            "orderBook": o_book,
+                            "companyName": c_name
+                        }
 
-            ltp_val = safe_float(price_info.get("lastPrice") or price_info.get("close"))
-            pc_val = safe_float(price_info.get("previousClose") or price_info.get("basePrice"))
-            op_val = safe_float(price_info.get("open"))
-            hi_val = safe_float(intra_hl.get("max") or price_info.get("high") or price_info.get("dayHigh"))
-            lo_val = safe_float(intra_hl.get("min") or price_info.get("low") or price_info.get("dayLow"))
-            yh_val = safe_float(week_hl.get("max") or price_info.get("yearHigh"))
-            yl_val = safe_float(week_hl.get("min") or price_info.get("yearLow"))
-
-            chg_val = safe_float(price_info.get("change"))
-            if chg_val is None and ltp_val is not None and pc_val is not None:
-                chg_val = round(ltp_val - pc_val, 2)
-
-            pct_val = safe_float(price_info.get("pChange"))
-            if pct_val is None and ltp_val is not None and pc_val is not None and pc_val > 0:
-                pct_val = round(((ltp_val - pc_val) / pc_val) * 100, 2)
-
-            near_wkh = safe_float(price_info.get("nearWKH"))
-            if near_wkh is None and ltp_val is not None and yh_val is not None and yh_val > 0:
-                near_wkh = round(((ltp_val - yh_val) / yh_val) * 100, 2)
-
-            near_wkl = safe_float(price_info.get("nearWKL"))
-            if near_wkl is None and ltp_val is not None and yl_val is not None and yl_val > 0:
-                near_wkl = round(((ltp_val - yl_val) / yl_val) * 100, 2)
-
-            deliv_pct = safe_float(trade_info.get("deliveryToTradedQuantity") or trade_info.get("secWiseDelivx", {}).get("deliveryToTradedQuantity") or sec_info.get("deliveryTotradedQuantity"))
-            deliv_qty = safe_float(trade_info.get("deliveryQuantity") or trade_info.get("secWiseDelivx", {}).get("deliveryQuantity"))
-            qty_trd = safe_float(trade_info.get("quantityTraded") or trade_info.get("secWiseDelivx", {}).get("quantityTraded") or trade_info.get("totalTradedVolume") or trade_info.get("totalVolume"))
-            tot_val = safe_float(trade_info.get("totalTradedValue") or trade_info.get("totalTurnover"))
-            ffmc_val = safe_float(trade_info.get("ffmc") or trade_info.get("totalMarketCap"))
-            tot_mcap = safe_float(trade_info.get("totalMarketCap") or trade_info.get("marketCap"))
-
-            # If delivery info missing, fetch section=trade_info
-            if deliv_pct is None:
-                try:
-                    trade_sec = self.fetch_stock_trade_info(clean_sym)
-                    if trade_sec and isinstance(trade_sec, dict):
-                        sec_dp = trade_sec.get("securityWiseDP") or {}
-                        deliv_pct = safe_float(sec_dp.get("deliveryToTradedQuantity"))
-                        if sec_dp.get("deliveryQuantity"):
-                            deliv_qty = safe_float(sec_dp.get("deliveryQuantity"))
-                        if sec_dp.get("quantityTraded"):
-                            qty_trd = safe_float(sec_dp.get("quantityTraded"))
-                except Exception:
-                    pass
-
-            industry_name = industry_info.get("basicIndustry") or industry_info.get("industry") or info.get("industry") or metadata.get("industry") or sec_info.get("basicIndustry")
-            macro_val = industry_info.get("macro") or sec_info.get("macro")
-            sector_val = industry_info.get("sector") or sec_info.get("sector")
-            isin_val = info.get("isin") or metadata.get("isinCode") or sec_info.get("isin")
-            series_val = metadata.get("series") or (info.get("activeSeries", ["EQ"])[0] if info.get("activeSeries") else "EQ")
-
-            # Valuation metrics
-            pd_sector_pe = safe_float(metadata.get("pdSectorPe") or sec_info.get("pdSectorPe"))
-            pd_symbol_pe = safe_float(metadata.get("pdSymbolPe") or sec_info.get("pdSymbolPe"))
-            pd_sector_ind = metadata.get("pdSectorInd") or sec_info.get("pdSectorInd")
-
+        # 3. Fallback to Bhavcopy for complete and accurate exchange data
+        bhav_map = self.fetch_full_market_bhavcopy()
+        if clean_sym in bhav_map:
+            bh = bhav_map[clean_sym]
             return {
                 "priceInfo": {
-                    "lastPrice": ltp_val,
-                    "change": chg_val,
-                    "pChange": pct_val,
-                    "previousClose": pc_val,
-                    "open": op_val,
-                    "close": safe_float(price_info.get("close")),
-                    "vwap": safe_float(price_info.get("vwap")),
-                    "lowerCP": safe_float(price_info.get("lowerCP")),
-                    "upperCP": safe_float(price_info.get("upperCP")),
-                    "intraDayHighLow": {
-                        "min": lo_val,
-                        "max": hi_val
-                    },
-                    "weekHighLow": {
-                        "min": yl_val,
-                        "max": yh_val
-                    },
-                    "nearWKH": near_wkh,
-                    "nearWKL": near_wkl,
-                    "perChange30d": safe_float(price_info.get("perChange30d")),
-                    "perChange365d": safe_float(price_info.get("perChange365d")),
-                    "cmDailyVolatility": safe_float(price_info.get("cmDailyVolatility")),
-                    "cmAnnualVolatility": safe_float(price_info.get("cmAnnualVolatility"))
+                    "lastPrice": bh.get("lastPrice"),
+                    "change": bh.get("change"),
+                    "pChange": bh.get("pChange"),
+                    "previousClose": bh.get("previousClose"),
+                    "open": bh.get("open"),
+                    "close": bh.get("lastPrice"),
+                    "intraDayHighLow": {"min": bh.get("dayLow"), "max": bh.get("dayHigh")},
+                    "weekHighLow": {"min": bh.get("yearLow"), "max": bh.get("yearHigh")},
+                    "yearHigh": bh.get("yearHigh"),
+                    "yearLow": bh.get("yearLow"),
+                    "nearWKH": bh.get("nearWKH"),
+                    "nearWKL": bh.get("nearWKL")
                 },
                 "tradeInfo": {
-                    "totalTradedVolume": qty_trd,
-                    "totalTradedValue": tot_val,
-                    "ffmc": ffmc_val,
-                    "totalMarketCap": tot_mcap,
-                    "deliveryToTradedQuantity": deliv_pct,
-                    "deliveryQuantity": deliv_qty,
-                    "quantityTraded": qty_trd,
-                    "faceValue": safe_float(sec_info.get("faceValue") or trade_info.get("faceValue")),
-                    "issuedSize": safe_float(sec_info.get("issuedSize") or trade_info.get("issuedSize")),
-                    "impactCost": safe_float(trade_info.get("impactCost")),
-                    "applicableMargin": safe_float(trade_info.get("applicableMargin") or price_info.get("applicableMargin"))
+                    "totalTradedVolume": bh.get("totalTradedVolume"),
+                    "totalTradedValue": bh.get("totalTradedValue")
                 },
                 "secInfo": {
-                    "basicIndustry": industry_name,
-                    "macro": macro_val,
-                    "sector": sector_val,
-                    "isin": isin_val,
-                    "faceValue": safe_float(sec_info.get("faceValue")),
-                    "issuedSize": safe_float(sec_info.get("issuedSize")),
-                    "listingDate": metadata.get("listingDate") or sec_info.get("listingDate"),
-                    "pdSectorPe": pd_sector_pe,
-                    "pdSymbolPe": pd_symbol_pe,
-                    "pdSectorInd": pd_sector_ind,
-                    "indexList": sec_info.get("indexList") or [pd_sector_ind] if pd_sector_ind else []
+                    "isin": bh.get("isin"),
+                    "basicIndustry": m_info_master.get("industry") if m_info_master else "NSE Equity"
                 },
                 "metaData": {
-                    "companyName": c_name,
+                    "companyName": bh.get("companyName") or clean_sym,
                     "symbol": clean_sym,
-                    "series": series_val,
-                    "isinCode": isin_val,
-                    "industry": industry_name,
-                    "isFNOSec": str(info.get("isFNOSec", "false")).lower(),
-                    "listingDate": metadata.get("listingDate"),
-                    "lastUpdateTime": metadata.get("lastUpdateTime")
+                    "series": bh.get("series") or "EQ",
+                    "isinCode": bh.get("isin")
                 },
-                "orderBook": order_book,
-                "companyName": c_name
+                "companyName": bh.get("companyName") or clean_sym
             }
 
         return None

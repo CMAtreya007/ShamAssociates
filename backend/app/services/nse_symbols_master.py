@@ -243,15 +243,41 @@ NSE_ALL_EQUITIES_MASTER: List[Dict[str, str]] = [
     {"symbol": "ZENSARTECH", "company_name": "Zensar Technologies Limited", "industry": "IT Services"},
 ]
 
+import os
+import json
+from pathlib import Path
+
+# Load comprehensive 2,583+ NSE equities list if available
+_ALL_EQUITIES_LIST: List[Dict[str, str]] = list(NSE_ALL_EQUITIES_MASTER)
+_equity_master_path = Path(__file__).resolve().parent.parent.parent / "data" / "equity_master.json"
+
+if _equity_master_path.exists():
+    try:
+        with open(_equity_master_path, "r", encoding="utf-8") as f:
+            full_list = json.load(f)
+            seen = {item["symbol"].upper() for item in _ALL_EQUITIES_LIST}
+            for item in full_list:
+                sym = item.get("symbol", "").upper().strip()
+                if sym and sym not in seen:
+                    _ALL_EQUITIES_LIST.append({
+                        "symbol": sym,
+                        "company_name": item.get("company_name") or sym,
+                        "industry": item.get("industry") or "NSE Equity",
+                        "series": item.get("series") or "EQ"
+                    })
+                    seen.add(sym)
+    except Exception as e:
+        pass
+
 # Quick index for symbol lookups
-_SYMBOL_MAP = {item["symbol"].upper(): item for item in NSE_ALL_EQUITIES_MASTER}
+_SYMBOL_MAP = {item["symbol"].upper(): item for item in _ALL_EQUITIES_LIST}
 
 def lookup_master_symbol(symbol: str) -> Optional[Dict[str, str]]:
     """Returns metadata for a given symbol from the master cache."""
     return _SYMBOL_MAP.get(symbol.strip().upper())
 
-def search_master_equities(query: str, limit: int = 30) -> List[Dict[str, str]]:
-    """Fast prefix and fuzzy matching on symbol and company name across all equities."""
+def search_master_equities(query: str, limit: int = 40) -> List[Dict[str, str]]:
+    """Fast prefix and fuzzy matching on symbol and company name across all 2583+ equities."""
     q = query.strip().upper()
     if not q:
         return []
@@ -260,7 +286,7 @@ def search_master_equities(query: str, limit: int = 30) -> List[Dict[str, str]]:
     prefix_matches = []
     contains_matches = []
 
-    for item in NSE_ALL_EQUITIES_MASTER:
+    for item in _ALL_EQUITIES_LIST:
         sym = item["symbol"]
         name = item["company_name"].upper()
 
